@@ -1,0 +1,1 @@
+M = readdata(“MyDielectric3.txt”);
