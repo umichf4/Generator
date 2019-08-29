@@ -1,4 +1,4 @@
-# Simulator
+# Generator
 
 Firstly, use Visdom
 
