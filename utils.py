@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # @Author: Brandon Han
 # @Date:   2019-08-17 15:20:26
-# @Last Modified by:   BrandonHanx
-# @Last Modified time: 2019-08-20 18:16:35
+# @Last Modified by:   Brandon Han
+# @Last Modified time: 2019-08-29 16:04:22
 import torch
 import os
 import json
@@ -11,11 +11,10 @@ import cmath
 import numpy as np
 from scipy import interpolate
 import scipy.io as scio
-from scipy import interpolate
-import matplotlib.pyplot as plt
 import matlab.engine
 
 current_dir = os.path.abspath(os.path.dirname(__file__))
+
 
 class Params():
     """Class that loads hyperparameters from a json file.
@@ -192,21 +191,22 @@ def data_pre(list_all, wlimit):
     dtype = [('wave_length', int), ('thickness', int), ('radius', int), ('efficiency', float)]
     values = [tuple(single_device) for single_device in list_all]
     array_temp = np.array(values, dtype)
-    array_all = np.sort(array_temp, order = ['thickness', 'radius', 'wave_length'])
-    
+    array_all = np.sort(array_temp, order=['thickness', 'radius', 'wave_length'])
+
     thickness_list = np.unique(array_all['thickness'])
     radius_list = np.unique(array_all['radius'])
     reformed = []
 
     for thickness in thickness_list:
         for radius in radius_list:
-            pick_index = np.intersect1d(np.argwhere(array_all['radius'] == radius), np.argwhere(array_all['thickness'] == thickness))
+            pick_index = np.intersect1d(np.argwhere(array_all['radius'] == radius), np.argwhere(
+                array_all['thickness'] == thickness))
             picked = array_all[pick_index]
-            picked = np.sort(picked, order = ['wave_length'])
+            picked = np.sort(picked, order=['wave_length'])
             cur_ref = [thickness, radius]
             for picked_single in picked:
                 cur_ref.append(picked_single[3])
-            
+
             # if len(cur_ref) > wlimit + 2:
             #     cur_ref = cur_ref[0:wlimit + 2]
 
@@ -214,31 +214,34 @@ def data_pre(list_all, wlimit):
 
     return np.array(reformed), array_all
 
+
 def inter(inputs, device):
     inputs_inter = torch.ones(inputs.shape[0], inputs.shape[1], 224)
     x = np.linspace(0, 223, num=inputs.shape[2])
     new_x = np.linspace(0, 223, num=224)
-    
+
     for index_j, j in enumerate(inputs):
         for index_jj, jj in enumerate(j):
             y = jj
-            f = interpolate.interp1d(x,y,kind='cubic')
+            f = interpolate.interp1d(x, y, kind='cubic')
             jj = f(new_x)
-            inputs_inter[index_j, index_jj, :] = torch.from_numpy(jj) 
-            
+            inputs_inter[index_j, index_jj, :] = torch.from_numpy(jj)
+
     inputs_inter = inputs_inter.double().to(device)
-    
+
     return inputs_inter
+
 
 def disc_net(in_data, net, device):
     outputs = net(in_data)
-    
+
     outputs = outputs.double().to(device)
     return outputs
 
+
 def RCWA(eng, w_list, gap, thick_list, r_list, acc=5):
     batch_size = len(thick_list)
-    spec = np.ones((batch_size, len(w_list)))   
+    spec = np.ones((batch_size, len(w_list)))
     gap = matlab.double([gap])
     acc = matlab.double([acc])
     for i in range(batch_size):
@@ -249,18 +252,24 @@ def RCWA(eng, w_list, gap, thick_list, r_list, acc=5):
         for index, w in enumerate(w_list):
             w = matlab.double([w])
             spec[i, index] = eng.RCWA_solver(w, gap, thick, r, acc)
-            
+
     return spec
+
 
 def plot_both(y1, y2):
     x = range(y1.shape[0])
-    y1 = y1.cpu().detach().numpy() 
-    y2 = y2.cpu().detach().numpy() 
+    y1 = y1.cpu().detach().numpy()
+    y2 = y2.cpu().detach().numpy()
     plt.figure()
     plt.plot(x, y1, label='Real', color='#F08080')
     plt.plot(x, y2, label='Predict', color='#DB7093')
     plt.show()
-    
+
+
+def gauss_spec(f, mean, var, depth=0.2):
+    return 1 - (1 - depth) * np.exp(-(f - mean) ** 2 / (2 * (var ** 2)))
+
+
 if __name__ == "__main__":
 
     data_path = current_dir + '\\data'
@@ -283,5 +292,5 @@ if __name__ == "__main__":
     # picked_data = aray[pick_index]
 
     # sliced = array_slice(data_sorted)
-    
+
     print('done')
