@@ -13,19 +13,24 @@ import sys
 current_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(current_dir)
 from torch.utils.data import DataLoader, TensorDataset
-from PeleeNet import PeleeNet
-from net_2 import SimulatorNet
+#from PeleeNet import PeleeNet
+#from net_2 import SimulatorNet
+from InfoGAN import G
 from utils import *
+from utils import Paraloss
 from tqdm import tqdm
 from torch.optim import lr_scheduler
 from scipy import interpolate
+import random
+import matplotlib.pyplot as plt
 import matlab.engine
 eng = matlab.engine.start_matlab()
 eng.addpath(eng.genpath('matlab'))
 
-def train_simulator(params):
+def train_InfoGAN(params):
     # Device configuration
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
     print('Training starts, using %s' % (device))
 
     # Visualization configuration
@@ -40,48 +45,25 @@ def train_simulator(params):
         'height': 600,
         'showlegend': True,
     }
-
-    # Data configuration
-    TT_pre, _ = load_mat(os.path.join(current_dir, params.T_path))
-    TT_array, _ = data_pre(TT_pre, params.wlimit)
-
-    np.random.shuffle(TT_array)   
-    all_num = TT_array.shape[0]
-    TT_tensor = torch.from_numpy(TT_array)
-    TT_tensor = TT_tensor.double()
-
-    x = TT_tensor
-    train_x = x[:int(all_num * params.ratio), 2:]
-    valid_x = x[int(all_num * params.ratio):, 2:]
-
-    train_dataset = TensorDataset(train_x)
-    train_loader = DataLoader(dataset=train_dataset, batch_size=params.batch_size, shuffle=True)
-
-    valid_dataset = TensorDataset(valid_x)
-    valid_loader = DataLoader(dataset=valid_dataset, batch_size=valid_x.shape[0], shuffle=True)
     
-    w = list(range(400, 681, 10))
-    gap = 360
-    acc = 5
-    
+    spec_dim = 56
+    spec_x = np.linspace(400, 680, 56)
+    w_list = list(spec_x)
+    noise_dim = 200
+
     # Net configuration
-    net = PeleeNet(num_classes=2)
-    net = net.double()
-    net.to(device)
-    
-    net_s = SimulatorNet(in_num=params.in_num, out_num=params.out_num)
-    net_s = net_s.double()
-    net_s.to(device)
-    
+    net = G(in_features=spec_dim + noise_dim, out_features=3) #0+56+200=256, gap+thick+r=3
+    net = net.float().to(device)
     optimizer = torch.optim.SGD(net.parameters(), lr=params.lr, momentum=0.9)
     #scheduler = lr_scheduler.StepLR(optimizer, params.step_szie, params.gamma)
 
-    criterion = nn.L1Loss()
-    train_loss_list, val_loss_list, epoch_list = [], [], []
+    criterion_spec = nn.L1Loss()
+    #criterion_para = Paraloss()
+    loss_list, epoch_list = [], []
 
 #    if params.restore_from:
 #        load_checkpoint(params.restore_from, net, optimizer)        
-    load_checkpoint(params.restore_from, net_s, None)
+    #load_checkpoint(params.restore_from, net_s, None)
     
     # Start training
     for k in range(params.epochs):
@@ -90,59 +72,80 @@ def train_simulator(params):
         
         # Train
         net.train()
-        for i, data in enumerate(train_loader, 0):
-            inputs = data[0].unsqueeze(1) 
-            inputs_inter = inter(inputs, device)
-            
-            optimizer.zero_grad()
-
-            outputs = net(inputs_inter)     
-            
-            optimizer.step()
-            
-            #labels = disc_net(outputs, net_s, device)
-            labels = RCWA(eng = eng, w_list = w, gap = gap, thick_list = outputs.cpu().detach().numpy()[:, 0].tolist(), r_list = outputs.cpu().detach().numpy()[:, 1].tolist(), acc = acc)
-            
-            inputs = inputs.squeeze(1)
-            train_loss = criterion(inputs, labels)
-            train_loss.backward()
-
-
-        train_loss_list.append(train_loss)
-
-        # Validation
-        net.eval()
-        val_loss = 0
-        for i, data in enumerate(valid_loader):
-            inputs = data[0].unsqueeze(1) 
-            inputs_inter = inter(inputs, device)
-            
-            outputs = net(inputs_inter)
-            
-            labels = disc_net(outputs, net_s, device)
-            
-            inputs = inputs.squeeze(1)
-            val_loss += criterion(inputs.to(device), labels).sum()
-
-        val_loss /= (i + 1)
-        val_loss_list.append(val_loss)
-
-        print('Epoch=%d  train_loss: %.7f valid_loss: %.7f ' %
-              (epoch, train_loss, val_loss))
         
-        plot_both(labels[0], inputs[0])
-        print(outputs[0])
+        spec = np.ones((params.batch_size, spec_dim))
+        for i in range(params.batch_size):
+            spec[i] = random_gauss_spec(spec_x)
+            
+        spec = torch.from_numpy(spec)
+        spec = spec.to(device).float()
+#        plt.plot(spec_x, spec, label='1')
+#        plt.legend()
+#        plt.grid()
+#        plt.show()      
+        noise= np.random.uniform(low=0, high=1, size=(params.batch_size, noise_dim))
+        noise = torch.from_numpy(noise)
+        noise = noise.to(device).float()
+        
+        optimizer.zero_grad()        
+        outputs = net(spec, noise)
+        outputs = (outputs + 1) / 2
+        optimizer.step()
+        
+        gap = (outputs[:, 0] * 200 + 200).cpu().detach().numpy()
+        thick = (outputs[:, 1] * 600 + 100).cpu().detach().numpy()
+        radius =  (outputs[:, 2] * 80 + 20).cpu().detach().numpy()
+        
+        real_spec = RCWA(eng, w_list, list(gap), list(thick), list(radius), acc=5)
+        real_spec = torch.from_numpy(real_spec).to(device).float()
+        loss = criterion_spec(spec, real_spec) * spec.shape[1]
+        #loss.requires_grad = True
+        #loss_para = criterion_para(outputs.to(device))
+        
+        loss = loss * outputs
+        loss = torch.sum(torch.sum(loss, 1))
+        loss.backward()
+        loss_list.append(loss)
+        
+        weights = net.state_dict().keys()
+
+#        # Validation
+#        net.eval()
+#        val_loss = 0
+#        for i, data in enumerate(valid_loader):
+#            inputs = data[0].unsqueeze(1) 
+#            inputs_inter = inter(inputs, device)
+#            
+#            outputs = net(inputs_inter)
+#            
+#            labels = disc_net(outputs, net_s, device)
+#            
+#            inputs = inputs.squeeze(1)
+#            val_loss += criterion(inputs.to(device), labels).sum()
+#
+#        val_loss /= (i + 1)
+#        val_loss_list.append(val_loss)
+
+        print('Epoch=%d  loss: %.7f' %
+              (epoch, loss))
+        
+#        plot_both(labels[0], inputs[0])
+#        print(outputs[0])
         
         #scheduler.step()
         
         # Update Visualization
         if viz.check_connection():
-            cur_epoch_loss = viz.line(torch.Tensor(train_loss_list), torch.Tensor(epoch_list),
-                                      win=cur_epoch_loss, name='Train Loss',
-                                      update=(None if cur_epoch_loss is None else 'replace'),
-                                      opts=cur_epoch_loss_opts)
-            cur_epoch_loss = viz.line(torch.Tensor(val_loss_list), torch.Tensor(epoch_list),
-                                      win=cur_epoch_loss, name='Validation Loss',
+#            cur_epoch_loss = viz.line(torch.Tensor(spec_loss_list), torch.Tensor(epoch_list),
+#                                      win=cur_epoch_loss, name='Spec Loss',
+#                                      update=(None if cur_epoch_loss is None else 'replace'),
+#                                      opts=cur_epoch_loss_opts)
+#            cur_epoch_loss = viz.line(torch.Tensor(para_loss_list), torch.Tensor(epoch_list),
+#                                      win=cur_epoch_loss, name='Para Loss',
+#                                      update=(None if cur_epoch_loss is None else 'replace'),
+#                                      opts=cur_epoch_loss_opts)
+            cur_epoch_loss = viz.line(torch.Tensor(loss_list), torch.Tensor(epoch_list),
+                                      win=cur_epoch_loss, name='Total Loss',
                                       update=(None if cur_epoch_loss is None else 'replace'),
                                       opts=cur_epoch_loss_opts)
 
@@ -165,7 +168,7 @@ def train_simulator(params):
     print('Finished Training')
 
 
-def test_simulator(params):
+def test_InfoGAN(params):
     # Device configuration
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     print('Test starts, using %s' % (device))
@@ -176,7 +179,7 @@ def test_simulator(params):
     _, TT_array = load_mat(os.path.join(current_dir, params.T_path))
 
     net = SimulatorNet(in_num=params.in_num, out_num=params.out_num)
-    net = net.double()
+    net = net.float()
     net.to(device)
     if params.restore_from:
         load_checkpoint(os.path.join(current_dir, params.restore_from), net, None)
@@ -195,15 +198,16 @@ def test_simulator(params):
             
             # for wavelength in wavelength_real:
             #     test_data = [wavelength, thickness, radius]
-            #     input_tensor = torch.from_numpy(np.array(test_data)).double().view(1, -1)
+            #     input_tensor = torch.from_numpy(np.array(test_data)).float().view(1, -1)
             #     output_tensor = net(input_tensor.to(device))
             #     spectrum_fake.append(output_tensor.view(-1).detach().cpu().numpy())
 
             test_data = [thickness, radius]
-            input_tensor = torch.from_numpy(np.array(test_data)).double().view(1, -1)
+            input_tensor = torch.from_numpy(np.array(test_data)).float().view(1, -1)
             output_tensor = net(input_tensor.to(device))
             spectrum_fake = np.array(output_tensor.view(-1).detach().cpu().numpy()).squeeze()
             plot_both_parts(wavelength_real, spectrum_real, spectrum_fake, str(thickness) + '_' + str(radius) + '.png')
             print('Single iteration finished \n')
 
     print('Finished Testing \n')
+

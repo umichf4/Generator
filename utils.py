@@ -4,6 +4,7 @@
 # @Last Modified by:   Brandon Han
 # @Last Modified time: 2019-08-29 16:04:22
 import torch
+import torch.nn as nn
 import os
 import json
 import matplotlib.pyplot as plt
@@ -12,6 +13,7 @@ import numpy as np
 from scipy import interpolate
 import scipy.io as scio
 import matlab.engine
+import math
 
 current_dir = os.path.abspath(os.path.dirname(__file__))
 
@@ -46,7 +48,26 @@ class Params():
         """Gives dict-like access to Params instance by `params.dict['learning_rate']`"""
         return self.__dict__
 
-
+class Paraloss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        
+    def forward(self, x):
+        length = x.shape[0]
+        
+        gap = x[:, 0].unsqueeze(1)
+        gap = torch.abs(gap - 200) + torch.abs(gap - 400) - 200
+        
+        t = x[:, 1].unsqueeze(1)
+        t = torch.abs(t - 100) + torch.abs(t - 700) - 600
+        
+        r = x[:, 2].unsqueeze(1)
+        r = torch.abs(r - 20) + torch.abs(r - 100) - 80
+        
+        loss = gap + t + r
+        loss = 0.01 * loss
+        return torch.mean(torch.sum(loss, 1))
+    
 def save_checkpoint(state, path, name):
     if not os.path.exists(path):
         print("Checkpoint Directory does not exist! Making directory {}".format(path))
@@ -239,16 +260,17 @@ def disc_net(in_data, net, device):
     return outputs
 
 
-def RCWA(eng, w_list, gap, thick_list, r_list, acc=5):
+def RCWA(eng, w_list, gap_list, thick_list, r_list, acc=5):
     batch_size = len(thick_list)
     spec = np.ones((batch_size, len(w_list)))
-    gap = matlab.double([gap])
     acc = matlab.double([acc])
     for i in range(batch_size):
         thick = thick_list[i]
         thick = matlab.double([thick])
         r = r_list[i]
         r = matlab.double([r])
+        gap = gap_list[i]
+        gap = matlab.double([gap])
         for index, w in enumerate(w_list):
             w = matlab.double([w])
             spec[i, index] = eng.RCWA_solver(w, gap, thick, r, acc)
@@ -266,8 +288,26 @@ def plot_both(y1, y2):
     plt.show()
 
 
+def normal_distribution(x, mean, sigma):
+    return np.exp(-1*((x-mean)**2)/(2*(sigma**2)))/(math.sqrt(2*np.pi) * sigma)
+
+
 def gauss_spec(f, mean, var, depth=0.2):
     return 1 - (1 - depth) * np.exp(-(f - mean) ** 2 / (2 * (var ** 2)))
+
+
+def random_gauss_spec(f):
+    depth = np.random.uniform(low=0.0, high=0.05)
+    mean = np.random.uniform(low=400, high=600)
+    var = np.random.uniform(low=10, high=50)
+    return 1 - (1 - depth) * np.exp(-(f - mean) ** 2 / (2 * (var ** 2)))
+
+
+def random_gauss_spec_combo(f, valley_num):
+    spec = np.zeros(len(f))
+    for i in range(valley_num):
+        spec += random_gauss_spec(f)
+    return spec / valley_num
 
 
 if __name__ == "__main__":
