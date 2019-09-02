@@ -104,11 +104,12 @@ def train_InfoGAN(params):
         real_spec = RCWA(eng, w_list, list(gap), list(thick), list(radius), acc=1)
         real_spec = torch.from_numpy(real_spec).to(device).float()
         loss_spec = criterion_spec(spec, real_spec) 
-        #loss.requires_grad = True
+        #loss_spec.requires_grad = True
         #loss_para = criterion_para(outputs.to(device))
         #loss_spec = Tensor(loss_spec.cpu().numpy())
         
-        loss = criterion_final(loss_spec, outputs)
+        #loss = criterion_final(loss_spec, outputs)
+        loss = loss_spec + outputs
         loss.backward()
         loss_list.append(loss)
         
@@ -183,42 +184,70 @@ def test_InfoGAN(params):
     # Device configuration
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     print('Test starts, using %s' % (device))
-
+    
+    spec_dim = 28
+    noise_dim = 100
+    
+    spec = np.ones((params.batch_size, spec_dim))
+    spec_x = np.linspace(400, 680, spec_dim)
+    w_list = list(spec_x)
+    for i in range(params.batch_size):
+        spec[i] = random_gauss_spec(spec_x)
+        
+    spec = torch.from_numpy(spec)
+    spec = spec.to(device).float()
+    
+    noise= np.random.uniform(low=0, high=1, size=(params.batch_size, noise_dim))
+    noise = torch.from_numpy(noise)
+    noise = noise.to(device).float()
+        
     # Visualization configuration
     make_figure_dir()
 
-    _, TT_array = load_mat(os.path.join(current_dir, params.T_path))
-
-    net = SimulatorNet(in_num=params.in_num, out_num=params.out_num)
+    net = G_Deconv_Fc(in_features=spec_dim + noise_dim, out_features=3)
     net = net.float()
     net.to(device)
     if params.restore_from:
         load_checkpoint(os.path.join(current_dir, params.restore_from), net, None)
     net.eval()
-    thickness_all = range(200, 800, 100)
-    radius_all = range(20, 100, 10)
-    spectrum_fake = []
+    
+    outputs = net(spec, noise)
+    outputs = (outputs + 1) / 2
+    
+    gap = (outputs[:, 0] * 200 + 200).cpu().detach().numpy()
+    thick = (outputs[:, 1] * 600 + 100).cpu().detach().numpy()
+    radius =  (outputs[:, 2] * 80 + 20).cpu().detach().numpy()
+    
+    real_spec = RCWA(eng, w_list, list(gap), list(thick), list(radius), acc=1)
+    real_spec = torch.from_numpy(real_spec).to(device).float()
+    
+    spec = spec.cpu().detach().numpy()
+    real_spec = real_spec.cpu().detach().numpy()
+    
+    w = np.linspace(400,680,spec_dim)
+    for i in range(5):
+        plot_both_parts(w, real_spec[i], spec[i], str(i)+'spec[0].png') 
 
-    for thickness in thickness_all:
-        for radius in radius_all:
-
-            wavelength_real, spectrum_real = find_spectrum(thickness, radius, TT_array)
-            # if len(wavelength_real) > params.wlimit:
-            #     wavelength_real = wavelength_real[0:params.wlimit]
-            #     spectrum_real = spectrum_real[0:params.wlimit]
-            
-            # for wavelength in wavelength_real:
-            #     test_data = [wavelength, thickness, radius]
-            #     input_tensor = torch.from_numpy(np.array(test_data)).float().view(1, -1)
-            #     output_tensor = net(input_tensor.to(device))
-            #     spectrum_fake.append(output_tensor.view(-1).detach().cpu().numpy())
-
-            test_data = [thickness, radius]
-            input_tensor = torch.from_numpy(np.array(test_data)).float().view(1, -1)
-            output_tensor = net(input_tensor.to(device))
-            spectrum_fake = np.array(output_tensor.view(-1).detach().cpu().numpy()).squeeze()
-            plot_both_parts(wavelength_real, spectrum_real, spectrum_fake, str(thickness) + '_' + str(radius) + '.png')
-            print('Single iteration finished \n')
+#    for thickness in thickness_all:
+#        for radius in radius_all:
+#
+#            wavelength_real, spectrum_real = find_spectrum(thickness, radius, TT_array)
+#            # if len(wavelength_real) > params.wlimit:
+#            #     wavelength_real = wavelength_real[0:params.wlimit]
+#            #     spectrum_real = spectrum_real[0:params.wlimit]
+#            
+#            # for wavelength in wavelength_real:
+#            #     test_data = [wavelength, thickness, radius]
+#            #     input_tensor = torch.from_numpy(np.array(test_data)).float().view(1, -1)
+#            #     output_tensor = net(input_tensor.to(device))
+#            #     spectrum_fake.append(output_tensor.view(-1).detach().cpu().numpy())
+#
+#            test_data = [thickness, radius]
+#            input_tensor = torch.from_numpy(np.array(test_data)).float().view(1, -1)
+#            output_tensor = net(input_tensor.to(device))
+#            spectrum_fake = np.array(output_tensor.view(-1).detach().cpu().numpy()).squeeze()
+#            plot_both_parts(wavelength_real, spectrum_real, spectrum_fake, str(thickness) + '_' + str(radius) + '.png')
+#            print('Single iteration finished \n')
 
     print('Finished Testing \n')
 
