@@ -15,9 +15,10 @@ sys.path.append(current_dir)
 from torch.utils.data import DataLoader, TensorDataset
 #from PeleeNet import PeleeNet
 #from net_2 import SimulatorNet
-from InfoGAN import G
+from InfoGAN import G_FC_Conv_Fc, G_Deconv_Fc
 from utils import *
-from utils import Paraloss
+from utils import FinalLoss
+#from utils import Paraloss
 from tqdm import tqdm
 from torch.optim import lr_scheduler
 from scipy import interpolate
@@ -46,19 +47,22 @@ def train_InfoGAN(params):
         'showlegend': True,
     }
     
-    spec_dim = 56
-    spec_x = np.linspace(400, 680, 56)
+    #spec_dim = 56
+    spec_dim = 28
+    spec_x = np.linspace(400, 680, spec_dim)
     w_list = list(spec_x)
-    noise_dim = 200
+    #noise_dim = 200
+    noise_dim = 100
 
     # Net configuration
-    net = G(in_features=spec_dim + noise_dim, out_features=3) #0+56+200=256, gap+thick+r=3
+    net = G_Deconv_Fc(in_features=spec_dim + noise_dim, out_features=3) #0+56+200=256, gap+thick+r=3
     net = net.float().to(device)
     optimizer = torch.optim.SGD(net.parameters(), lr=params.lr, momentum=0.9)
     #scheduler = lr_scheduler.StepLR(optimizer, params.step_szie, params.gamma)
 
     criterion_spec = nn.L1Loss()
     #criterion_para = Paraloss()
+    criterion_final = FinalLoss()
     loss_list, epoch_list = [], []
 
 #    if params.restore_from:
@@ -87,27 +91,34 @@ def train_InfoGAN(params):
         noise = torch.from_numpy(noise)
         noise = noise.to(device).float()
         
-        optimizer.zero_grad()        
+        optimizer.zero_grad()
+        
         outputs = net(spec, noise)
         outputs = (outputs + 1) / 2
-        optimizer.step()
+        
         
         gap = (outputs[:, 0] * 200 + 200).cpu().detach().numpy()
         thick = (outputs[:, 1] * 600 + 100).cpu().detach().numpy()
         radius =  (outputs[:, 2] * 80 + 20).cpu().detach().numpy()
         
-        real_spec = RCWA(eng, w_list, list(gap), list(thick), list(radius), acc=5)
+        real_spec = RCWA(eng, w_list, list(gap), list(thick), list(radius), acc=1)
         real_spec = torch.from_numpy(real_spec).to(device).float()
-        loss = criterion_spec(spec, real_spec) * spec.shape[1]
+        loss_spec = criterion_spec(spec, real_spec) 
         #loss.requires_grad = True
         #loss_para = criterion_para(outputs.to(device))
+        #loss_spec = Tensor(loss_spec.cpu().numpy())
         
-        loss = loss * outputs
-        loss = torch.sum(torch.sum(loss, 1))
+        loss = criterion_final(loss_spec, outputs)
         loss.backward()
         loss_list.append(loss)
         
-        weights = net.state_dict().keys()
+#        outputs = outputs * params.batch_size
+#        loss_temp = criterion_spec(outputs, outputs * 2) * 100
+#        loss_temp.backward()
+        
+        for i in net.named_parameters():
+            print(i)
+            break
 
 #        # Validation
 #        net.eval()
@@ -125,7 +136,7 @@ def train_InfoGAN(params):
 #
 #        val_loss /= (i + 1)
 #        val_loss_list.append(val_loss)
-
+        optimizer.step()
         print('Epoch=%d  loss: %.7f' %
               (epoch, loss))
         

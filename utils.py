@@ -68,6 +68,16 @@ class Paraloss(nn.Module):
         loss = 0.01 * loss
         return torch.mean(torch.sum(loss, 1))
     
+class FinalLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        
+    def forward(self, mse, outputs):
+        loss = mse * outputs
+        loss = torch.sum(torch.sum(loss, 1))
+        
+        return loss
+    
 def save_checkpoint(state, path, name):
     if not os.path.exists(path):
         print("Checkpoint Directory does not exist! Making directory {}".format(path))
@@ -310,6 +320,7 @@ def random_gauss_spec_combo(f, valley_num):
     return spec / valley_num
 
 
+        
 if __name__ == "__main__":
 
     data_path = current_dir + '\\data'

@@ -7,10 +7,31 @@ Created on Fri Aug 30 16:44:24 2019
 import torch
 import torch.nn as nn
 
-class G(nn.Module):
+
+def weights_init(model):
+    for m in model.modules():
+        if isinstance(m,nn.Conv1d):
+            #nn.init.normal(m.weight.data)
+            #nn.init.xavier_normal(m.weight.data)
+            #nn.init.kaiming_normal(m.weight.data)
+            m.weight.data.normal_()
+            m.bias.data.fill_(0)
+            
+        elif isinstance(m,nn.Linear):
+            m.weight.data.normal_()
+            
+        elif isinstance(m,nn.BatchNorm1d):
+            m.weight.data.normal_()
+            m.bias.data.fill_(0)
+            
+        elif isinstance(m,nn.ConvTranspose1d):
+            m.weight.data.normal_()
+            m.bias.data.fill_(0)
+            
+class G_FC_Conv_Fc(nn.Module):
 
     def __init__(self, in_features=256, out_features=5):
-        super(G, self).__init__()
+        super(G_FC_Conv_Fc, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
 
@@ -22,6 +43,7 @@ class G(nn.Module):
             nn.BatchNorm1d(2048),
             nn.ReLU(),
         )
+        
         self.Conv = nn.Sequential(
             nn.Conv1d(in_channels=64, out_channels=32, kernel_size=4, stride=2,
                  padding=1),
@@ -36,9 +58,11 @@ class G(nn.Module):
             nn.BatchNorm1d(4),
             nn.ReLU(),
         )
+            
         self.FC2 = nn.Sequential(
             nn.Linear(16, self.out_features)
         )
+        
         weights_init(self)
 
     def forward(self, spec, noise):
@@ -51,24 +75,67 @@ class G(nn.Module):
         x = torch.tanh(x)
         return x
 
-def weights_init(m):  # Initiate weights
-    classname = m.__class__.__name__
-    if classname.find('Conv') != -1:
-        m.weight.data.normal_(0.0, 0.02)
-    elif classname.find('BatchNorm') != -1:
-        m.weight.data.normal_(1.0, 0.02)
-        m.bias.data.fill_(0)
-    elif classname.find('Linear') != -1:
-        m.weight.data.normal_(1.0, 0.02)
-        m.bias.data.fill_(0)
+class G_Deconv_Fc(nn.Module):
+
+    def __init__(self, in_features=128, out_features=5):
+        super(G_Deconv_Fc, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        
+        self.Deconv = nn.Sequential(
+            nn.ConvTranspose1d(in_channels=8, out_channels=4, kernel_size=4, 
+                               stride=2, padding=1),
+            nn.BatchNorm1d(4),
+            nn.ReLU(),
+            nn.ConvTranspose1d(in_channels=4, out_channels=2, kernel_size=4, 
+                               stride=2, padding=1),
+            nn.BatchNorm1d(2),
+            nn.ReLU(),
+            nn.ConvTranspose1d(in_channels=2, out_channels=1, kernel_size=4, 
+                               stride=2, padding=1),
+            nn.BatchNorm1d(1),
+            nn.ReLU(),
+        )
+            
+        self.FC = nn.Sequential(
+            nn.Linear(128, 1024),
+            nn.BatchNorm1d(1024),
+            nn.ReLU(),
+            nn.Linear(1024, 256),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+            nn.Linear(256, self.out_features),
+        )
+
+
+        weights_init(self)
+
+    def forward(self, spec, noise):
+        x = torch.cat([spec, noise], 1)
+        assert x.shape[-1] == 128
+        x = x.view(-1, 8, 16)
+        x = self.Deconv(x)
+        x = x.squeeze(1)
+        x = self.FC(x)
+        x = torch.tanh(x)
+        return x
+    
 
 if __name__ == '__main__':
     
-    generator = G()
+    generator = G_Deconv_Fc()
         
     shape = torch.ones([4, 2])
-    spec = torch.ones([4, 57])
-    z = torch.ones([4, 199])
+    spec = torch.ones([4, 28])
+    z = torch.ones([4, 100])
     
-    out = generator(shape, spec, z)
+    out = generator(spec, z)
     print(generator)
+#    generator = G_FC_Conv_Fc()
+#        
+#    shape = torch.ones([4, 2])
+#    spec = torch.ones([4, 56])
+#    z = torch.ones([4, 200])
+#    
+#    out = generator(spec, z)
+#    print(generator)
