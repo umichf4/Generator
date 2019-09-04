@@ -5,6 +5,7 @@
 # @Last Modified time: 2019-08-29 16:04:22
 import torch
 import torch.nn as nn
+from torch.autograd import Variable
 import os
 import json
 import matplotlib.pyplot as plt
@@ -16,8 +17,18 @@ import matlab.engine
 import math
 
 current_dir = os.path.abspath(os.path.dirname(__file__))
+pi = Variable(torch.FloatTensor([math.pi])).cuda()
 
-
+gap_low = 200
+gap_high = 400
+gap_range = gap_high - gap_low
+t_low = 100
+t_high = 700
+t_range = t_high - t_low
+r_low = 20
+r_high = 80
+r_range = r_high - r_low
+    
 class Params():
     """Class that loads hyperparameters from a json file.
 
@@ -275,19 +286,53 @@ def RCWA(eng, w_list, gap_list, thick_list, r_list, acc=5):
     spec = np.ones((batch_size, len(w_list)))
     acc = matlab.double([acc])
     for i in range(batch_size):
-        thick = thick_list[i]
+        thick = thick_list[i]        
+        r = r_list[i]        
+        gap = gap_list[i]        
+        
+        gap, thick, r = range_restrict(gap, thick, r)
+        
         thick = matlab.double([thick])
-        r = r_list[i]
         r = matlab.double([r])
-        gap = gap_list[i]
         gap = matlab.double([gap])
+        
         for index, w in enumerate(w_list):
             w = matlab.double([w])
-            spec[i, index] = eng.RCWA_solver(w, gap, thick, r, acc)
+            eff = eng.RCWA_solver(w, gap, thick, r, acc)
+            if type(eff) != float:
+                print(eff)
+                print(eff.size)
+                print(gap)
+                print(thick)
+                print(r)
+            spec[i, index] = eff
 
     return spec
 
-
+def range_restrict(gap, thick, r):
+    if gap > gap_high:
+        new_gap = gap_high
+    elif gap < gap_low:
+        new_gap = gap_low
+    else: 
+        new_gap = gap
+        
+    if thick > t_high:
+        new_thick = t_high
+    elif thick < t_low:
+        new_thick = t_low
+    else: 
+        new_thick = thick
+        
+    if r > r_high:
+        new_r = r_high
+    elif r < r_low:
+        new_r = r_low
+    else: 
+        new_r = r
+        
+    return new_gap, new_thick, new_r 
+        
 def plot_both(y1, y2):
     x = range(y1.shape[0])
     y1 = y1.cpu().detach().numpy()
@@ -320,7 +365,23 @@ def random_gauss_spec_combo(f, valley_num):
     return spec / valley_num
 
 
-        
+def normal(x, mu, sigma_sq):
+    exp_part = (-1*(Variable(x)-mu).pow(2)/(2*sigma_sq)).exp()
+    coe_part = 1/(2*sigma_sq*pi.expand_as(sigma_sq)).sqrt()
+    return exp_part * coe_part
+
+
+def select_para(mu, var):
+    eps = torch.randn(mu.size()) / 2.0
+    # calculate the probability
+    para = (mu + var.sqrt()*Variable(eps).cuda()).data
+    prob = normal(para, mu, var)
+    prob = prob / (torch.sum(prob, 1).unsqueeze(1).expand(prob.shape)) # 对同一batch的同一参数的不同采样进行归一化
+    entropy = 0.5*((2*(pi.expand_as(var))*var*(math.e)).log())
+
+    log_prob = prob.log()
+    return para, log_prob, entropy
+    
 if __name__ == "__main__":
 
     data_path = current_dir + '\\data'

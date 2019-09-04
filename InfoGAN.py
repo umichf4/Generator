@@ -6,6 +6,7 @@ Created on Fri Aug 30 16:44:24 2019
 """
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 def weights_init(model):
@@ -63,6 +64,10 @@ class G_FC_Conv_Fc(nn.Module):
             nn.Linear(16, self.out_features)
         )
         
+        self.FC3 = nn.Sequential(
+            nn.Linear(16, self.out_features)
+        )
+        
         weights_init(self)
 
     def forward(self, spec, noise):
@@ -71,9 +76,11 @@ class G_FC_Conv_Fc(nn.Module):
         x = x.view(-1, 64, 32)
         x = self.Conv(x)
         x = x.view(-1, 16)
-        x = self.FC2(x)
-        x = torch.tanh(x)
-        return x
+        mu = self.FC2(x)
+        mu = torch.tanh(mu)
+        var = self.FC3(x)
+        var = F.softplus(var)
+        return mu, var
 
 class G_Deconv_Fc(nn.Module):
 
@@ -104,9 +111,16 @@ class G_Deconv_Fc(nn.Module):
             nn.Linear(1024, 256),
             nn.BatchNorm1d(256),
             nn.ReLU(),
-            nn.Linear(256, self.out_features),
+            #nn.Linear(256, self.out_features),
         )
-
+        
+        self.FC_mu = nn.Sequential(
+            nn.Linear(256, self.out_features)    
+        )
+        
+        self.FC_var = nn.Sequential(
+            nn.Linear(256, self.out_features)    
+        )
 
         weights_init(self)
 
@@ -117,8 +131,11 @@ class G_Deconv_Fc(nn.Module):
         x = self.Deconv(x)
         x = x.squeeze(1)
         x = self.FC(x)
-        x = torch.tanh(x)
-        return x
+        mu = self.FC_mu(x)
+        mu = torch.sigmoid(mu)
+        var = self.FC_var(x)
+        var = torch.sigmoid(var)
+        return mu, var
     
 
 if __name__ == '__main__':

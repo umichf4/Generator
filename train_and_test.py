@@ -46,24 +46,40 @@ def train_InfoGAN(params):
         'height': 600,
         'showlegend': True,
     }
-    
+
+    lamda = 0.01
     #spec_dim = 56
     spec_dim = 28
     spec_x = np.linspace(400, 680, spec_dim)
     w_list = list(spec_x)
     #noise_dim = 200
     noise_dim = 100
+    gap_low = 200
+    gap_high = 400
+    gap_range = gap_high - gap_low
+    t_low = 100
+    t_high = 700
+    t_range = t_high - t_low
+    r_low = 20
+    r_high = 80
+    r_range = r_high - r_low
 
+    sample_times = 5
+    seed = 123
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    
     # Net configuration
-    net = G_Deconv_Fc(in_features=spec_dim + noise_dim, out_features=3) #0+56+200=256, gap+thick+r=3
+    out_features = 3
+    net = G_Deconv_Fc(in_features=spec_dim + noise_dim, out_features=out_features) #0+56+200=256, gap+thick+r=3
     net = net.float().to(device)
     optimizer = torch.optim.SGD(net.parameters(), lr=params.lr, momentum=0.9)
     #scheduler = lr_scheduler.StepLR(optimizer, params.step_szie, params.gamma)
 
     criterion_spec = nn.L1Loss()
     #criterion_para = Paraloss()
-    criterion_final = FinalLoss()
-    loss_list, epoch_list = [], []
+    #criterion_final = FinalLoss()
+    loss_total_list, loss_mse_list, loss_entro_list, epoch_list = [], [], [], []
 
 #    if params.restore_from:
 #        load_checkpoint(params.restore_from, net, optimizer)        
@@ -78,6 +94,20 @@ def train_InfoGAN(params):
         net.train()
         
         spec = np.ones((params.batch_size, spec_dim))
+#        spec_min_index = spec.argmin(1)
+#        spec_left = np.ones((params.batch_size))
+#        spec_right = np.ones((params.batch_size))
+#        for i in range(params.batch_size):
+#            if spec_min_index[i] - params.batch_size//4 >= 0:
+#                spec_left[i] = spec_min_index[i] - params.batch_size//4
+#            else:
+#                spec_left[i] = 0
+#                
+#            if spec_min_index[i] + params.batch_size//4 < spec_dim:
+#                spec_right[i] = spec_min_index[i] + params.batch_size//4
+#            else:
+#                spec_right[i] = 0
+                           
         for i in range(params.batch_size):
             spec[i] = random_gauss_spec(spec_x)
             
@@ -93,34 +123,67 @@ def train_InfoGAN(params):
         
         optimizer.zero_grad()
         
-        outputs = net(spec, noise)
-        outputs = (outputs + 1) / 2
+        mu, var = net(spec, noise)
+        mu = mu.unsqueeze(2) 
+        var = var.unsqueeze(2) 
+        mu = mu.expand(mu.shape[0], mu.shape[1], sample_times)
+        var = var.expand(var.shape[0], var.shape[1], sample_times)
         
+        entropies = []
+        log_probs = []
+        paras = []
+        for i in range(out_features):
+            para, log_prob, entropy = select_para(mu[:, i, :], var[:, i, :])
+            
+            entropies.append(entropy)
+            log_probs.append(log_prob)
+            paras.append(para)
+                
+        gap = (paras[0] * gap_range + gap_low).cpu().detach().numpy()            
+        thick = (paras[1] * t_range + t_low).cpu().detach().numpy()
+        radius =  (paras[2] * r_range + r_low).cpu().detach().numpy()
         
-        gap = (outputs[:, 0] * 200 + 200).cpu().detach().numpy()
-        thick = (outputs[:, 1] * 600 + 100).cpu().detach().numpy()
-        radius =  (outputs[:, 2] * 80 + 20).cpu().detach().numpy()
+        loss_mse = 0
+        loss_entro = 0
+        loss_total = 0
         
-        real_spec = RCWA(eng, w_list, list(gap), list(thick), list(radius), acc=1)
-        real_spec = torch.from_numpy(real_spec).to(device).float()
-        loss_spec = criterion_spec(spec, real_spec) 
+        for j in range(sample_times):
+            real_spec = RCWA(eng, w_list, gap[:,j].tolist(), thick[:,j].tolist(), radius[:,j].tolist(), acc=1)  # 不交叉采样
+            real_spec = torch.from_numpy(real_spec).to(device).float()
+            loss_spec = criterion_spec(spec, real_spec) 
+            
+            loss_mse = loss_mse - (log_probs[0][:,j] * log_probs[1][:,j] * log_probs[2][:,j] * loss_spec).sum().to(device)
+            loss_entro = loss_entro + (lamda * (entropies[0][:,j] + entropies[1][:,j] + entropies[2][:,j])).sum().to(device)
+            #loss = loss + (log_probs[0][:,j] * log_probs[1][:,j] * log_probs[2][:,j] * loss_spec).sum().to(device) + (lamda * entropies[0][:,j] * entropies[1][:,j] * entropies[2][:,j]).sum().to(device)
+            loss_total = loss_mse + loss_entro
+        
+        loss_mse = loss_mse / sample_times
+        loss_entro = loss_entro / sample_times
+        loss_total = loss_total / sample_times
+        
+        loss_total.backward()
+        
+        loss_mse_list.append(loss_mse)
+        loss_entro_list.append(loss_entro)
+        loss_total_list.append(loss_total)
         #loss_spec.requires_grad = True
         #loss_para = criterion_para(outputs.to(device))
-        #loss_spec = Tensor(loss_spec.cpu().numpy())
+        #loss_spec = Tensor(loss_spec.cpu().numpy())= 
         
-        #loss = criterion_final(loss_spec, outputs)
-        loss = loss_spec + outputs
+        '''
+        loss = criterion_final(loss_spec, outputs)
         loss.backward()
         loss_list.append(loss)
-        
+        '''
 #        outputs = outputs * params.batch_size
 #        loss_temp = criterion_spec(outputs, outputs * 2) * 100
 #        loss_temp.backward()
         
+        '''
         for i in net.named_parameters():
             print(i)
             break
-
+        '''
 #        # Validation
 #        net.eval()
 #        val_loss = 0
@@ -138,8 +201,8 @@ def train_InfoGAN(params):
 #        val_loss /= (i + 1)
 #        val_loss_list.append(val_loss)
         optimizer.step()
-        print('Epoch=%d  loss: %.7f' %
-              (epoch, loss))
+        print('Epoch=%d  MSE Loss: %.7f  Entropy Loss: %.7f  Total Loss: %.7f ' %
+              (epoch, loss_mse, loss_entro, loss_total))
         
 #        plot_both(labels[0], inputs[0])
 #        print(outputs[0])
@@ -148,15 +211,15 @@ def train_InfoGAN(params):
         
         # Update Visualization
         if viz.check_connection():
-#            cur_epoch_loss = viz.line(torch.Tensor(spec_loss_list), torch.Tensor(epoch_list),
-#                                      win=cur_epoch_loss, name='Spec Loss',
-#                                      update=(None if cur_epoch_loss is None else 'replace'),
-#                                      opts=cur_epoch_loss_opts)
-#            cur_epoch_loss = viz.line(torch.Tensor(para_loss_list), torch.Tensor(epoch_list),
-#                                      win=cur_epoch_loss, name='Para Loss',
-#                                      update=(None if cur_epoch_loss is None else 'replace'),
-#                                      opts=cur_epoch_loss_opts)
-            cur_epoch_loss = viz.line(torch.Tensor(loss_list), torch.Tensor(epoch_list),
+            cur_epoch_loss = viz.line(torch.Tensor(loss_mse_list), torch.Tensor(epoch_list),
+                                      win=cur_epoch_loss, name='MSE Loss',
+                                      update=(None if cur_epoch_loss is None else 'replace'),
+                                      opts=cur_epoch_loss_opts)
+            cur_epoch_loss = viz.line(torch.Tensor(loss_entro_list), torch.Tensor(epoch_list),
+                                      win=cur_epoch_loss, name='Entropy Loss',
+                                      update=(None if cur_epoch_loss is None else 'replace'),
+                                      opts=cur_epoch_loss_opts)
+            cur_epoch_loss = viz.line(torch.Tensor(loss_total_list), torch.Tensor(epoch_list),
                                       win=cur_epoch_loss, name='Total Loss',
                                       update=(None if cur_epoch_loss is None else 'replace'),
                                       opts=cur_epoch_loss_opts)
