@@ -46,7 +46,8 @@ def train_InfoGAN(params):
         'height': 600,
         'showlegend': True,
     }
-
+    
+    sample_times = params.sample_times
     lamda = 0.01
     #spec_dim = 56
     spec_dim = 28
@@ -63,11 +64,11 @@ def train_InfoGAN(params):
     r_low = 20
     r_high = 80
     r_range = r_high - r_low
-
-    sample_times = 5
-    seed = 123
-    torch.manual_seed(seed)
-    np.random.seed(seed)
+    
+    # Fix the random seed
+#    seed = 123
+#    torch.manual_seed(seed)
+#    np.random.seed(seed)
     
     # Net configuration
     out_features = 3
@@ -87,6 +88,10 @@ def train_InfoGAN(params):
     
     # Start training
     for k in range(params.epochs):
+#        if k == 20:
+#            kkk = k + 1
+#            pass
+        
         epoch = k + 1
         epoch_list.append(epoch)
         
@@ -152,8 +157,8 @@ def train_InfoGAN(params):
             real_spec = torch.from_numpy(real_spec).to(device).float()
             loss_spec = criterion_spec(spec, real_spec) 
             
-            loss_mse = loss_mse - (log_probs[0][:,j] * log_probs[1][:,j] * log_probs[2][:,j] * loss_spec).sum().to(device)
-            loss_entro = loss_entro + (lamda * (entropies[0][:,j] + entropies[1][:,j] + entropies[2][:,j])).sum().to(device)
+            loss_mse = loss_mse - (log_probs[0][:,j] * log_probs[1][:,j] * log_probs[2][:,j] * loss_spec).mean().to(device)
+            loss_entro = loss_entro + (lamda * (entropies[0][:,j] + entropies[1][:,j] + entropies[2][:,j])).mean().to(device)
             #loss = loss + (log_probs[0][:,j] * log_probs[1][:,j] * log_probs[2][:,j] * loss_spec).sum().to(device) + (lamda * entropies[0][:,j] * entropies[1][:,j] * entropies[2][:,j]).sum().to(device)
             loss_total = loss_mse + loss_entro
         
@@ -162,6 +167,7 @@ def train_InfoGAN(params):
         loss_total = loss_total / sample_times
         
         loss_total.backward()
+        #nn.utils.clip_grad_norm(net.parameters(), 50) # 梯度裁剪，防止梯度爆炸
         
         loss_mse_list.append(loss_mse)
         loss_entro_list.append(loss_entro)

@@ -305,6 +305,7 @@ def RCWA(eng, w_list, gap_list, thick_list, r_list, acc=5):
                 print(gap)
                 print(thick)
                 print(r)
+                return spec
             spec[i, index] = eff
 
     return spec
@@ -382,6 +383,15 @@ def select_para(mu, var):
     log_prob = prob.log()
     return para, log_prob, entropy
     
+def diff_tensor(a):
+    a_new_right = torch.ones([a.shape[0], a.shape[1] + 1])
+    a_new_right[:, 1:] = a
+    a_new_left = torch.ones([a.shape[0], a.shape[1] + 1])
+    a_new_left[:, :-1] = a
+    a_diff = a_new_left - a_new_right
+    a_diff = a_diff[:, 1:-1]
+    return a_diff
+
 if __name__ == "__main__":
 
     data_path = current_dir + '\\data'

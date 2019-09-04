@@ -115,11 +115,13 @@ class G_Deconv_Fc(nn.Module):
         )
         
         self.FC_mu = nn.Sequential(
-            nn.Linear(256, self.out_features)    
+            nn.Linear(256, self.out_features),
+            nn.Sigmoid()
         )
         
         self.FC_var = nn.Sequential(
-            nn.Linear(256, self.out_features)    
+            nn.Linear(256, self.out_features),
+            nn.Sigmoid()
         )
 
         weights_init(self)
@@ -132,9 +134,9 @@ class G_Deconv_Fc(nn.Module):
         x = x.squeeze(1)
         x = self.FC(x)
         mu = self.FC_mu(x)
-        mu = torch.sigmoid(mu)
+        #mu = mu / 6.0
         var = self.FC_var(x)
-        var = torch.sigmoid(var)
+        #var = mu / 6.0
         return mu, var
     
 
