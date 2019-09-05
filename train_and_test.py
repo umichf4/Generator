@@ -157,7 +157,7 @@ def train_InfoGAN(params):
             real_spec = torch.from_numpy(real_spec).to(device).float()
             loss_spec = criterion_spec(spec, real_spec) 
             
-            loss_mse = loss_mse - (log_probs[0][:,j] * log_probs[1][:,j] * log_probs[2][:,j] * loss_spec).mean().to(device)
+            loss_mse = loss_mse - (log_probs[0][:,j] * log_probs[1][:,j] * log_probs[2][:,j] * log_probs[0][:,j].exp() * log_probs[1][:,j].exp() * log_probs[2][:,j].exp() * loss_spec).mean().to(device)
             loss_entro = loss_entro + (lamda * (entropies[0][:,j] + entropies[1][:,j] + entropies[2][:,j])).mean().to(device)
             #loss = loss + (log_probs[0][:,j] * log_probs[1][:,j] * log_probs[2][:,j] * loss_spec).sum().to(device) + (lamda * entropies[0][:,j] * entropies[1][:,j] * entropies[2][:,j]).sum().to(device)
             loss_total = loss_mse + loss_entro
