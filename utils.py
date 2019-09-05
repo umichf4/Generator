@@ -296,17 +296,18 @@ def RCWA(eng, w_list, gap_list, thick_list, r_list, acc=5):
         r = matlab.double([r])
         gap = matlab.double([gap])
         
-        for index, w in enumerate(w_list):
-            w = matlab.double([w])
-            eff = eng.RCWA_solver(w, gap, thick, r, acc)
-            if type(eff) != float:
-                print(eff)
-                print(eff.size)
-                print(gap)
-                print(thick)
-                print(r)
-                return spec
-            spec[i, index] = eff
+        w = matlab.double(w_list)
+        eff = eng.RCWA_solver_par(w, gap, thick, r, acc)
+#        for eff_ind in eff:
+#            if type(eff_ind) != float:
+#                print(eff_ind)
+#                print(eff_ind.size)
+#                print(w)
+#                print(gap)
+#                print(thick)
+#                print(r)
+#                return spec
+        spec[i, :] = eff
 
     return spec
 

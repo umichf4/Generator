@@ -167,7 +167,7 @@ def train_InfoGAN(params):
         loss_total = loss_total / sample_times
         
         loss_total.backward()
-        #nn.utils.clip_grad_norm(net.parameters(), 50) # 梯度裁剪，防止梯度爆炸
+        nn.utils.clip_grad_norm(net.parameters(), 50) # 梯度裁剪，防止梯度爆炸
         
         loss_mse_list.append(loss_mse)
         loss_entro_list.append(loss_entro)

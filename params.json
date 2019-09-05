@@ -5,7 +5,7 @@
     "shape": "circle",
     "in_num": 2,
     "out_num": 28,
-    "batch_size": 4,
+    "batch_size": 16,
     "sample_times": 10,
     "epochs": 400,
     "ratio": 0.9,
