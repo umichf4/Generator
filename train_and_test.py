@@ -47,8 +47,8 @@ def train_InfoGAN(params):
         'showlegend': True,
     }
     
-    sample_times = params.sample_times
-    lamda = 0
+    #sample_times = params.sample_times
+    lamda = 0.0001
     #spec_dim = 56
     spec_dim = 28
     spec_x = np.linspace(400, 680, spec_dim)
