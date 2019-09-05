@@ -48,7 +48,7 @@ def train_InfoGAN(params):
     }
     
     sample_times = params.sample_times
-    lamda = 0.01
+    lamda = 0
     #spec_dim = 56
     spec_dim = 28
     spec_x = np.linspace(400, 680, spec_dim)
@@ -157,8 +157,8 @@ def train_InfoGAN(params):
             real_spec = torch.from_numpy(real_spec).to(device).float()
             loss_spec = criterion_spec(spec, real_spec) 
             
-            loss_mse = loss_mse - (log_probs[0][:,j] * log_probs[1][:,j] * log_probs[2][:,j] * log_probs[0][:,j].exp() * log_probs[1][:,j].exp() * log_probs[2][:,j].exp() * loss_spec).mean().to(device)
-            loss_entro = loss_entro + (lamda * (entropies[0][:,j] + entropies[1][:,j] + entropies[2][:,j])).mean().to(device)
+            loss_mse = loss_mse - (log_probs[0][:,j] * log_probs[1][:,j] * log_probs[2][:,j] * log_probs[0][:,j].exp() * log_probs[1][:,j].exp() * log_probs[2][:,j].exp() * loss_spec).sum().to(device)
+            loss_entro = loss_entro + (lamda * (entropies[0][:,j] + entropies[1][:,j] + entropies[2][:,j])).sum().to(device)
             #loss = loss + (log_probs[0][:,j] * log_probs[1][:,j] * log_probs[2][:,j] * loss_spec).sum().to(device) + (lamda * entropies[0][:,j] * entropies[1][:,j] * entropies[2][:,j]).sum().to(device)
             loss_total = loss_mse + loss_entro
         
@@ -167,7 +167,7 @@ def train_InfoGAN(params):
         loss_total = loss_total / sample_times
         
         loss_total.backward()
-        nn.utils.clip_grad_norm(net.parameters(), 50) # 梯度裁剪，防止梯度爆炸
+        nn.utils.clip_grad_norm(net.parameters(), 30) # 梯度裁剪，防止梯度爆炸
         
         loss_mse_list.append(loss_mse)
         loss_entro_list.append(loss_entro)
