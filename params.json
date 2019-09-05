@@ -7,10 +7,10 @@
     "out_num": 28,
     "batch_size": 16,
     "sample_times": 5,
-    "epochs": 400,
+    "epochs": 20000,
     "ratio": 0.9,
     "lr": 0.001,
     "step_szie": 40,
     "gamma": 0.6,
-    "save_epoch": 50
+    "save_epoch": 200
 }
