@@ -2,7 +2,7 @@
 # @Author: Brandon Han
 # @Date:   2019-09-04 14:27:09
 # @Last Modified by:   Brandon Han
-# @Last Modified time: 2019-09-07 12:10:57
+# @Last Modified time: 2019-09-07 16:06:18
 
 import os
 import sys
@@ -121,7 +121,7 @@ class SimulatorNet(nn.Module):
         self.spec_dim = spec_dim
         self.conv_block_shape = nn.Sequential(
             # ------------------------------------------------------
-            nn.Conv2d(1, d, 4, 2, 1),
+            nn.Conv2d(1, 3 * d // 4, 4, 2, 1),
             nn.LeakyReLU(0.2)
         )
         self.conv_block_gap = nn.Sequential(
@@ -135,14 +135,17 @@ class SimulatorNet(nn.Module):
             nn.Conv2d(d, d * 2, 4, 2, 1),
             nn.BatchNorm2d(d * 2),
             nn.LeakyReLU(0.2),
+            nn.Dropout(p=0.2),
             # ------------------------------------------------------
             nn.Conv2d(d * 2, d * 4, 4, 2, 1),
             nn.BatchNorm2d(d * 4),
             nn.LeakyReLU(0.2),
+            nn.Dropout(p=0.2),
             # ------------------------------------------------------
             nn.Conv2d(d * 4, d * 8, 4, 2, 1),
             nn.BatchNorm2d(d * 8),
             nn.LeakyReLU(0.2),
+            nn.Dropout(p=0.2),
             # ------------------------------------------------------
             nn.Conv2d(d * 8, d * 16, 4, 1, 0),
             nn.Sigmoid()
@@ -151,9 +154,11 @@ class SimulatorNet(nn.Module):
             nn.Linear(d * 16, 512),
             nn.BatchNorm1d(512),
             nn.LeakyReLU(0.2),
+            nn.Dropout(p=0.2),
             nn.Linear(512, 128),
             nn.BatchNorm1d(128),
             nn.LeakyReLU(0.2),
+            nn.Dropout(p=0.2),
             nn.Linear(128, spec_dim),
             nn.Sigmoid()
         )
@@ -164,9 +169,9 @@ class SimulatorNet(nn.Module):
 
     def forward(self, shape_in, gap_in):
         shape = self.conv_block_shape(shape_in)
-        # gap = self.conv_block_gap(gap_in.view(-1, 1, 1, 1))
-        # net = torch.cat((shape, gap), 1)
-        spec = self.conv_block_cat(shape)
+        gap = self.conv_block_gap(gap_in.view(-1, 1, 1, 1))
+        net = torch.cat((shape, gap), 1)
+        spec = self.conv_block_cat(net)
         spec = self.fc_block(spec.view(spec.shape[0], -1))
         return spec
 

@@ -2,7 +2,7 @@
 # @Author: Brandon Han
 # @Date:   2019-08-17 15:20:26
 # @Last Modified by:   Brandon Han
-# @Last Modified time: 2019-09-07 01:07:27
+# @Last Modified time: 2019-09-07 17:09:44
 
 import torch
 import torch.nn as nn
@@ -43,17 +43,28 @@ def train_generator(params):
     }
 
     # Data configuration
-    print("Waiting for data preparation...")
-    _, TT_array = load_mat(os.path.join(current_dir, params.T_path))
-    np.random.shuffle(TT_array)
+    if not (os.path.exists('data/all_gap.npy') and os.path.exists('data/all_shape.npy') and os.path.exists('data/all_spec.npy') and os.path.exists('data/all_gauss.npy')):
+        _, _, all_gap_np, all_spec_np, all_shape_np, all_gauss_np = data_pre_arbitrary(params.T_path)
+        np.save('data/all_gap.npy', all_gap_np)
+        np.save('data/all_spec.npy', all_spec_np)
+        np.save('data/all_shape.npy', all_shape_np)
+        np.save('data/all_gauss.npy', all_gauss_np)
 
-    all_num, _, all_gap, all_spec, all_shape = data_pre_arbitrary(TT_array)
+    all_gap = torch.from_numpy(np.load('data/all_gap.npy')).float()
+    all_spec = torch.from_numpy(np.load('data/all_spec.npy')).float()
+    all_shape = torch.from_numpy(np.load('data/all_shape.npy')).float()
+    all_gauss = torch.from_numpy(np.load('data/all_gauss.npy')).float()
+
+    all_num = all_gap.shape[0]
 
     train_gap = all_gap[:int(all_num * params.ratio)]
     valid_gap = all_gap[int(all_num * params.ratio):]
 
     train_spec = all_spec[:int(all_num * params.ratio), :]
     valid_spec = all_spec[int(all_num * params.ratio):, :]
+
+    train_gauss = all_gauss[:int(all_num * params.ratio), :]
+    valid_gauss = all_gauss[int(all_num * params.ratio):, :]
 
     train_shape = all_shape[:int(all_num * params.ratio), :, :, :]
     valid_shape = all_shape[int(all_num * params.ratio):, :, :, :]
@@ -239,25 +250,36 @@ def train_simulator(params):
     }
 
     # Data configuration
-    print("Waiting for data preparation...")
-    _, TT_array = load_mat(os.path.join(current_dir, params.T_path))
-    np.random.shuffle(TT_array)
+    if not (os.path.exists('data/all_gap.npy') and os.path.exists('data/all_shape.npy') and os.path.exists('data/all_spec.npy') and os.path.exists('data/all_gauss.npy')):
+        _, _, all_gap_np, all_spec_np, all_shape_np, all_gauss_np = data_pre_arbitrary(params.T_path)
+        np.save('data/all_gap.npy', all_gap_np)
+        np.save('data/all_spec.npy', all_spec_np)
+        np.save('data/all_shape.npy', all_shape_np)
+        np.save('data/all_gauss.npy', all_gauss_np)
 
-    all_num, _, all_gap, all_spec, all_shape = data_pre_arbitrary(TT_array)
+    all_gap = torch.from_numpy(np.load('data/all_gap.npy')).float()
+    # all_spec = torch.from_numpy(np.load('data/all_spec.npy')).float()
+    all_shape = torch.from_numpy(np.load('data/all_shape.npy')).float()
+    all_gauss = torch.from_numpy(np.load('data/all_gauss.npy')).float()
+
+    all_num = all_gap.shape[0]
 
     train_gap = all_gap[:int(all_num * params.ratio)]
     valid_gap = all_gap[int(all_num * params.ratio):]
 
-    train_spec = all_spec[:int(all_num * params.ratio), :]
-    valid_spec = all_spec[int(all_num * params.ratio):, :]
+    # train_spec = all_spec[:int(all_num * params.ratio), :]
+    # valid_spec = all_spec[int(all_num * params.ratio):, :]
+
+    train_gauss = all_gauss[:int(all_num * params.ratio), :]
+    valid_gauss = all_gauss[int(all_num * params.ratio):, :]
 
     train_shape = all_shape[:int(all_num * params.ratio), :, :, :]
     valid_shape = all_shape[int(all_num * params.ratio):, :, :, :]
 
-    train_dataset = TensorDataset(train_spec, train_shape, train_gap)
+    train_dataset = TensorDataset(train_gauss, train_shape, train_gap)
     train_loader = DataLoader(dataset=train_dataset, batch_size=params.batch_size, shuffle=True)
 
-    valid_dataset = TensorDataset(valid_spec, valid_shape, valid_gap)
+    valid_dataset = TensorDataset(valid_gauss, valid_shape, valid_gap)
     valid_loader = DataLoader(dataset=valid_dataset, batch_size=valid_spec.shape[0], shuffle=True)
 
     # Net configuration
@@ -291,11 +313,11 @@ def train_simulator(params):
             net.zero_grad()
 
             outputs = net(shapes, gaps)
-            train_loss = criterion(F.interpolate(outputs.view(-1, 1, params.spec_dim), 100, mode='linear'),
-                                   F.interpolate(specs.view(-1, 1, params.spec_dim), 100, mode='linear')) + \
-                criterion(F.interpolate(diff_tensor(outputs.squeeze(1)).view(-1, 1, params.spec_dim - 1), 100, mode='linear'),
-                          F.interpolate(diff_tensor(specs.squeeze(1)).view(-1, 1, params.spec_dim - 1), 100, mode='linear'))
-
+            # train_loss = criterion(F.interpolate(outputs.view(-1, 1, params.spec_dim), 100, mode='linear'),
+            #                        F.interpolate(specs.view(-1, 1, params.spec_dim), 100, mode='linear')) + \
+            #     criterion(F.interpolate(diff_tensor(outputs.squeeze(1)).view(-1, 1, params.spec_dim - 1), 100, mode='linear'),
+            #               F.interpolate(diff_tensor(specs.squeeze(1)).view(-1, 1, params.spec_dim - 1), 100, mode='linear'))
+            train_loss = criterion(outputs, specs)
             train_loss.backward()
             optimizer.step()
 
@@ -310,11 +332,11 @@ def train_simulator(params):
                 specs, shapes, gaps = specs.to(device), shapes.to(device), gaps.to(device)
 
                 outputs = net(shapes, gaps)
-                val_loss += criterion(F.interpolate(outputs.view(-1, 1, params.spec_dim), 100, mode='linear'),
-                                      F.interpolate(specs.view(-1, 1, params.spec_dim), 100, mode='linear')) + \
-                    criterion(F.interpolate(diff_tensor(outputs.squeeze(1)).view(-1, 1, params.spec_dim - 1), 100, mode='linear'),
-                              F.interpolate(diff_tensor(specs.squeeze(1)).view(-1, 1, params.spec_dim - 1), 100, mode='linear'))
-
+                # val_loss += criterion(F.interpolate(outputs.view(-1, 1, params.spec_dim), 100, mode='linear'),
+                #                       F.interpolate(specs.view(-1, 1, params.spec_dim), 100, mode='linear')) + \
+                #     criterion(F.interpolate(diff_tensor(outputs.squeeze(1)).view(-1, 1, params.spec_dim - 1), 100, mode='linear'),
+                #               F.interpolate(diff_tensor(specs.squeeze(1)).view(-1, 1, params.spec_dim - 1), 100, mode='linear'))
+                val_loss += criterion(outputs, specs)
         val_loss /= (i + 1)
         val_loss_list.append(val_loss)
 
