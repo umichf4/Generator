@@ -2,7 +2,7 @@
 # @Author: Brandon Han
 # @Date:   2019-08-17 15:20:26
 # @Last Modified by:   Brandon Han
-# @Last Modified time: 2019-09-07 17:09:44
+# @Last Modified time: 2019-09-07 22:15:23
 
 import torch
 import torch.nn as nn
@@ -280,7 +280,7 @@ def train_simulator(params):
     train_loader = DataLoader(dataset=train_dataset, batch_size=params.batch_size, shuffle=True)
 
     valid_dataset = TensorDataset(valid_gauss, valid_shape, valid_gap)
-    valid_loader = DataLoader(dataset=valid_dataset, batch_size=valid_spec.shape[0], shuffle=True)
+    valid_loader = DataLoader(dataset=valid_dataset, batch_size=valid_gap.shape[0], shuffle=True)
 
     # Net configuration
     net = SimulatorNet(spec_dim=params.spec_dim, d=params.net_depth)
@@ -289,7 +289,7 @@ def train_simulator(params):
     optimizer = torch.optim.Adam(net.parameters(), lr=params.lr, betas=(0.5, 0.999))
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, params.step_szie, params.gamma)
 
-    criterion = nn.MSELoss()
+    criterion = nn.L1Loss()
     train_loss_list, val_loss_list, epoch_list = [], [], []
 
     if params.restore_from:

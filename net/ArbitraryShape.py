@@ -2,7 +2,7 @@
 # @Author: Brandon Han
 # @Date:   2019-09-04 14:27:09
 # @Last Modified by:   Brandon Han
-# @Last Modified time: 2019-09-07 16:06:18
+# @Last Modified time: 2019-09-07 22:18:49
 
 import os
 import sys
@@ -160,7 +160,7 @@ class SimulatorNet(nn.Module):
             nn.LeakyReLU(0.2),
             nn.Dropout(p=0.2),
             nn.Linear(128, spec_dim),
-            nn.Sigmoid()
+            # nn.Sigmoid()
         )
 
     def weight_init(self, mean, std):
