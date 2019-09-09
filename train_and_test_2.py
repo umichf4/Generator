@@ -2,7 +2,7 @@
 # @Author: Brandon Han
 # @Date:   2019-08-17 15:20:26
 # @Last Modified by:   Brandon Han
-# @Last Modified time: 2019-09-09 11:12:45
+# @Last Modified time: 2019-09-09 12:40:04
 
 import torch
 import torch.nn as nn
@@ -210,14 +210,14 @@ def test_generator(params):
     wavelength = np.linspace(400, 680, 29)
     lucky = np.random.randint(low=int(4881 * params.ratio), high=4881)
     all_spec = np.load('data/all_spec.npy')
-    all_gap = np.load('data/all_gap.npy')
-    all_shape = np.load('data/all_shape.npy')
+    # all_gap = np.load('data/all_gap.npy')
+    # all_shape = np.load('data/all_shape.npy')
 
     with torch.no_grad():
-        # real_spec = all_spec[int(lucky)]
-        real_spec = gauss_spec_valley(wavelength, 600, 20, 0.1) * 0.5
-        spec = np.concatenate((real_spec, real_spec))
-        spec = torch.from_numpy(spec).float().view(1, -1)
+        real_spec = all_spec[int(lucky)]
+        # real_spec = gauss_spec_valley(wavelength, 600, 30, 0.1) * 0.6
+        # spec = np.concatenate((real_spec, real_spec))
+        spec = torch.from_numpy(real_spec).float().view(1, -1)
         noise = torch.rand(1, params.noise_dim)
         spec, noise = spec.to(device), noise.to(device)
         output_img, ouput_gap = net(noise, spec)
