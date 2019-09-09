@@ -2,7 +2,7 @@
 # @Author: Brandon Han
 # @Date:   2019-08-17 15:20:26
 # @Last Modified by:   Brandon Han
-# @Last Modified time: 2019-09-09 16:28:02
+# @Last Modified time: 2019-09-09 18:13:37
 import torch
 import os
 import json
@@ -287,14 +287,12 @@ def normalization(data):
     return (data - np.min(data)) / _range
 
 
-def keep_range(data):
-    for i in range(len(data)):
-        if data[i] < 0:
-            data[i] = 0
-        elif data[i] > 1:
-            data[i] = 1
-        else:
-            continue
+def keep_range(data, low=0, high=1):
+    index = np.where(data > high)
+    data[index] = high
+    index = np.where(data < low)
+    data[index] = low
+
     return data
 
 
@@ -435,7 +433,7 @@ def data_pre_arbitrary(T_path):
     return all_num, all_name_np, all_gap_np, all_spec_np, all_shape_np, all_gauss_np, all_ctrast_np
 
 
-def plot_possible_spec(spec, title):
+def plot_possible_spec(spec):
     min_index = np.argmin(spec, axis=1)
     min_sort = np.argsort(min_index)
     TE_spec = spec[min_sort, :]
@@ -444,18 +442,21 @@ def plot_possible_spec(spec, title):
 
     plt.figure()
     plt.pcolor(TE_spec, cmap=plt.cm.jet)
-    # plt.xlabel('Wavelength (nm)')
-    plt.xlabel('Index of elements')
+    plt.xlabel('Wavelength (nm)')
+    # plt.xlabel('Index of elements')
     plt.ylabel('Index of Devices')
-    plt.title('Gaussian Amplitude after Decomposition')
+    plt.title('Possible Contrast Distribution (TM)')
+    # plt.title('Gaussian Amplitude after Decomposition')
     # plt.title('Possible Spectrums of Arbitrary Shapes (' + title + ')')
     # plt.title(r'Possible Spectrums of Square Shape ($T_iO_2$)')
     # plt.xticks(np.arange(len(wavelength), step=4), np.uint16(wavelength[::4]))
+    plt.xticks(np.arange(8), np.uint16(wavelength[::4]))
     plt.yticks([])
     cb = plt.colorbar()
-    cb.ax.set_ylabel('Amplitude')
+    cb.ax.set_ylabel('Contrast')
     plt.show()
 
 
 if __name__ == '__main__':
-    _, TT_array = load_mat('data/shape_spec_5881.mat')
+    all_ctrast = np.load('data/all_ctrast.npy')
+    plot_possible_spec(keep_range(all_ctrast[:, 7:], high=3))

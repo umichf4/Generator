@@ -2,7 +2,7 @@
 # @Author: Brandon Han
 # @Date:   2019-08-17 15:20:26
 # @Last Modified by:   Brandon Han
-# @Last Modified time: 2019-09-09 16:36:01
+# @Last Modified time: 2019-09-09 18:48:08
 
 import torch
 import torch.nn as nn
@@ -87,7 +87,7 @@ def train_generator(params):
     optimizer = torch.optim.Adam(net.parameters(), lr=params.lr, betas=(0.5, 0.999))
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, params.step_szie, params.gamma)
 
-    simulator = SimulatorNet(spec_dim=params.spec_dim, d=params.net_depth)
+    simulator = SimulatorNet(spec_dim=58, d=32)
     load_checkpoint('models/arbitrary_Epoch1000_final_s.pth', simulator, None)
     for param in simulator.parameters():
         param.requires_grad = False
@@ -209,16 +209,20 @@ def test_generator(params):
     net.to(device)
     net.eval()
     wavelength = np.linspace(400, 680, 29)
-    lucky = np.random.randint(low=int(4881 * params.ratio), high=4881)
+    lucky = np.random.randint(low=int(5881 * params.ratio), high=5881)
     all_spec = np.load('data/all_spec.npy')
+    all_ctrast = np.load('data/all_ctrast.npy')
     # all_gap = np.load('data/all_gap.npy')
     # all_shape = np.load('data/all_shape.npy')
 
     with torch.no_grad():
-        # real_spec = all_spec[int(lucky)]
-        real_spec = gauss_spec_valley(wavelength, 440, 30, 0.1)
-        spec = np.concatenate((real_spec, real_spec))
-        spec = torch.from_numpy(spec).float().view(1, -1)
+        real_spec = all_spec[int(lucky)]
+        # ctrast = all_ctrast[int(lucky)]
+        desire = [0.5, 0.5, 0.5, 0.5, 0.3, 0.1, 2, 0.5, 0.5, 0.5, 0.5, 0.3, 0.1, 2]
+        ctrast = np.array(desire)
+        # real_spec = gauss_spec_valley(wavelength, 440, 30, 0.1)
+        # spec = np.concatenate((real_spec, real_spec))
+        spec = torch.from_numpy(ctrast).float().view(1, -1)
         noise = torch.rand(1, params.noise_dim)
         spec, noise = spec.to(device), noise.to(device)
         output_img, ouput_gap = net(noise, spec)
@@ -234,7 +238,8 @@ def test_generator(params):
 
         spec_pred_TE, spec_pred_TM = RCWA_arbitrary(eng, gap=out_gap, img_path="figures/test_output/hhhh.png")
         fake_spec = np.array(spec_pred_TE)
-        plot_both_parts(wavelength, real_spec[0:29], fake_spec.squeeze(), "hhhh_result.png")
+        # plot_both_parts(wavelength, real_spec[0:29], fake_spec.squeeze(), "hhhh_result.png")
+        plot_single_part(wavelength, fake_spec.squeeze(), "hhhh_result.png")
 
     print('Finished Testing \n')
 
