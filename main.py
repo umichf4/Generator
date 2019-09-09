@@ -17,9 +17,10 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--save_model_dir', default='models', type=str)
 parser.add_argument('--restore_from', default=None, type=str)
 parser.add_argument('--json_path', default='params.json', type=str)
-parser.add_argument('--T_path', default='data\\shape_spec_3881.mat', type=str)
+parser.add_argument('--T_path', default='data\\shape_spec_4881.mat', type=str)
 parser.add_argument('--test', action='store_true', default=False)
 parser.add_argument('--freeze', action='store_true', default=False)
+parser.add_argument('--simulator', action='store_true', default=False)
 args = parser.parse_args()
 
 # Load parameters from json file
@@ -32,7 +33,11 @@ params.T_path = args.T_path
 params.freeze = args.freeze
 params.cuda = torch.cuda.is_available()
 
-if args.test:
+if args.test and args.simulator:
     test_simulator(params)
-else:
+elif not args.test and args.simulator:
     train_simulator(params)
+elif args.test and not args.simulator:
+    test_generator(params)
+else:
+    train_generator(params)

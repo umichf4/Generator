@@ -2,7 +2,7 @@
 # @Author: Brandon Han
 # @Date:   2019-08-17 15:20:26
 # @Last Modified by:   Brandon Han
-# @Last Modified time: 2019-09-07 23:53:57
+# @Last Modified time: 2019-09-08 19:51:31
 import torch
 import os
 import json
@@ -310,7 +310,7 @@ def random_gauss_spec(f):
     depth = np.random.uniform(low=0.0, high=0.05)
     mean = np.random.uniform(low=400, high=600)
     var = np.random.uniform(low=20, high=40)
-    return 1 - (1 - depth) * np.exp(-(f - mean) ** 2 / (2 * (var ** 2)))
+    return 1- (1 - depth) * np.exp(-(f - mean) ** 2 / (2 * (var ** 2)))
 
 
 def random_step_spec(f):
@@ -396,13 +396,13 @@ def data_pre_arbitrary(T_path):
                 print("NO match with " + str(i) + ", it will be deleted later!")
                 delete_list.append(i)
             # gauss curve fit
-            try:
-                all_gauss_np[i, :] = np.concatenate(
-                    (np.array(gauss10_curve_fit(all_spec_np[i, :29])), np.array(gauss10_curve_fit(all_spec_np[i, 29:]))))
-            except:
-                print("Optimal parameters not found with " + str(i) + ", it will be deleted later!")
-                if find:
-                    delete_list.append(i)
+            # try:
+            #     all_gauss_np[i, :] = np.concatenate(
+            #         (np.array(gauss10_curve_fit(all_spec_np[i, :29])), np.array(gauss10_curve_fit(all_spec_np[i, 29:]))))
+            # except:
+            #     print("Optimal parameters not found with " + str(i) + ", it will be deleted later!")
+            #     if find:
+            #         delete_list.append(i)
             t.update()
     # delete error guys
     all_name_np = np.delete(all_name_np, delete_list, axis=0)
