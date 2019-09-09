@@ -2,7 +2,7 @@
 # @Author: Brandon Han
 # @Date:   2019-08-17 15:20:26
 # @Last Modified by:   Brandon Han
-# @Last Modified time: 2019-09-07 13:04:31
+# @Last Modified time: 2019-09-08 19:51:31
 import torch
 import os
 import json
@@ -13,9 +13,12 @@ from scipy import interpolate
 import scipy.io as scio
 import cv2
 from tqdm import tqdm
+from scipy.optimize import curve_fit
+import warnings
+warnings.filterwarnings('ignore')
 
 current_dir = os.path.abspath(os.path.dirname(__file__))
-Tensor = torch.cuda.DoubleTensor if torch.cuda.is_available() else torch.DoubleTensor
+Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
 
 
 class Params():
@@ -307,7 +310,7 @@ def random_gauss_spec(f):
     depth = np.random.uniform(low=0.0, high=0.05)
     mean = np.random.uniform(low=400, high=600)
     var = np.random.uniform(low=20, high=40)
-    return 1 - (1 - depth) * np.exp(-(f - mean) ** 2 / (2 * (var ** 2)))
+    return 1- (1 - depth) * np.exp(-(f - mean) ** 2 / (2 * (var ** 2)))
 
 
 def random_step_spec(f):
@@ -331,34 +334,110 @@ def spec_jitter(spec, amp):
     return normalization(spec + np.random.uniform(low=-amp, high=amp, size=spec.size))
 
 
-def data_pre_arbitrary(TT_array):
+def gauss10(x, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, s0, s1, s2, s3, s4, s5, s6, s7, s8, s9):
+
+    return a0 * np.exp(-((x - m0) / s0)**2) + a1 * np.exp(-((x - m1) / s1)**2) + a2 * np.exp(-((x - m2) / s2)**2) + \
+        a3 * np.exp(-((x - m3) / s3)**2) + a4 * np.exp(-((x - m4) / s4)**2) + a5 * np.exp(-((x - m5) / s5)**2) + \
+        a6 * np.exp(-((x - m6) / s6)**2) + a7 * np.exp(-((x - m7) / s7)**2) + a8 * np.exp(-((x - m8) / s8)**2) + \
+        a9 * np.exp(-((x - m9) / s9)**2)
+
+
+def gauss10_tensor(in_tensor):
+    wave_tensor = torch.range(400, 680, 10)
+
+    def gauss_tensor(wave_tensor, a, m, s):
+        return a * torch.exp(-torch.pow((wave_tensor - m) / s, 2))
+
+    out_tensor = torch.zeros_like(wave_tensor)
+    for i in range(10):
+        out_tensor += gauss_tensor(wave_tensor, in_tensor[i], in_tensor[i + 10], in_tensor[i + 20])
+    return out_tensor
+
+
+def gauss10_curve_fit(spec):
+    a_min = [0] * 10
+    a_max = [1] * 10
+    m_min = [400] * 10
+    m_max = [680] * 10
+    s_min = [0] * 10
+    s_max = [1000] * 10
+    min_limit = a_min + m_min + s_min
+    max_limit = a_max + m_max + s_max
+    wavelength = np.linspace(400, 680, 29)
+    popt, _ = curve_fit(gauss10, wavelength, spec, bounds=(min_limit, max_limit))
+    return popt
+
+
+def data_pre_arbitrary(T_path):
+    print("Waiting for data preparation...")
+    _, TT_array = load_mat(T_path)
     all_num = TT_array.shape[0]
     all_name_np = TT_array[:, 0]
     all_gap_np = (TT_array[:, 1] - 200) / 200
     all_spec_np = TT_array[:, 2:]
+    all_gauss_np = np.zeros((all_num, 60))
     all_shape_np = np.zeros((all_num, 1, 64, 64))
     with tqdm(total=all_num, ncols=70) as t:
+        delete_list = []
         for i in range(all_num):
+            # shape
+            find = False
             name = str(int(all_name_np[i]))
             filelist = os.listdir('polygon')
             for file in filelist:
                 if name == file.split('_')[0]:
                     img_np = cv2.imread('polygon/' + file, cv2.IMREAD_GRAYSCALE)
-                    # img_tensor = torch.from_numpy(img_np).float()
                     all_shape_np[i, 0, :, :] = img_np / 255
+                    find = True
+                    break
                 else:
                     continue
+            if not find:
+                print("NO match with " + str(i) + ", it will be deleted later!")
+                delete_list.append(i)
+            # gauss curve fit
+            # try:
+            #     all_gauss_np[i, :] = np.concatenate(
+            #         (np.array(gauss10_curve_fit(all_spec_np[i, :29])), np.array(gauss10_curve_fit(all_spec_np[i, 29:]))))
+            # except:
+            #     print("Optimal parameters not found with " + str(i) + ", it will be deleted later!")
+            #     if find:
+            #         delete_list.append(i)
             t.update()
-    # all_name_tensor = torch.from_numpy(all_name_np).float()
-    # all_gap_tensor = torch.from_numpy(all_gap_np).float()
-    # all_spec_tensor = torch.from_numpy(all_spec_np).float()
-    return all_num, all_name_np, all_gap_np, all_spec_np, all_shape_np
+    # delete error guys
+    all_name_np = np.delete(all_name_np, delete_list, axis=0)
+    all_gap_np = np.delete(all_gap_np, delete_list, axis=0)
+    all_spec_np = np.delete(all_spec_np, delete_list, axis=0)
+    all_shape_np = np.delete(all_shape_np, delete_list, axis=0)
+    all_gauss_np = np.delete(all_gauss_np, delete_list, axis=0)
+    print("Data preparation done! All get {} elements!".format(all_num - len(delete_list)))
+
+    return all_num, all_name_np, all_gap_np, all_spec_np, all_shape_np, all_gauss_np
+
+
+def plot_possible_spec(spec, title):
+    min_index = np.argmin(spec, axis=1)
+    min_sort = np.argsort(min_index)
+    TE_spec = spec[min_sort, :]
+    wavelength = np.linspace(400, 680, 29)
+    # TE_spec = cv2.resize(src=TE_spec, dsize=(1000, 1881), interpolation=cv2.INTER_CUBIC)
+
+    plt.figure()
+    plt.pcolor(TE_spec, cmap=plt.cm.jet)
+    # plt.xlabel('Wavelength (nm)')
+    plt.xlabel('Index of elements')
+    plt.ylabel('Index of Devices')
+    plt.title('Gaussian Amplitude after Decomposition')
+    # plt.title('Possible Spectrums of Arbitrary Shapes (' + title + ')')
+    # plt.title(r'Possible Spectrums of Square Shape ($T_iO_2$)')
+    # plt.xticks(np.arange(len(wavelength), step=4), np.uint16(wavelength[::4]))
+    plt.yticks([])
+    cb = plt.colorbar()
+    cb.ax.set_ylabel('Amplitude')
+    plt.show()
 
 
 if __name__ == '__main__':
-    _, TT_array = load_mat('data\\shape_spec_3211.mat')
-    np.random.shuffle(TT_array)
-    all_num, _, all_gap_np, all_spec_np, all_shape_np = data_pre_arbitrary(TT_array)
-    np.save('data\\all_gap.npy', all_gap_np)
-    np.save('data\\all_spec.npy', all_spec_np)
-    np.save('data\\all_shape.npy', all_shape_np)
+    # _, TT_array = load_mat('data/shape_spec_3881.mat')
+    gauss = np.load('data/all_gauss.npy')
+    plot_possible_spec(gauss[:, :10], 'TM')

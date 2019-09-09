@@ -2,7 +2,7 @@
 # @Author: Brandon Han
 # @Date:   2019-08-17 15:20:26
 # @Last Modified by:   Brandon Han
-# @Last Modified time: 2019-09-07 01:07:27
+# @Last Modified time: 2019-09-09 00:11:16
 
 import torch
 import torch.nn as nn
@@ -43,17 +43,28 @@ def train_generator(params):
     }
 
     # Data configuration
-    print("Waiting for data preparation...")
-    _, TT_array = load_mat(os.path.join(current_dir, params.T_path))
-    np.random.shuffle(TT_array)
+    if not (os.path.exists('data/all_gap.npy') and os.path.exists('data/all_shape.npy') and os.path.exists('data/all_spec.npy') and os.path.exists('data/all_gauss.npy')):
+        _, _, all_gap_np, all_spec_np, all_shape_np, all_gauss_np = data_pre_arbitrary(params.T_path)
+        np.save('data/all_gap.npy', all_gap_np)
+        np.save('data/all_spec.npy', all_spec_np)
+        np.save('data/all_shape.npy', all_shape_np)
+        # np.save('data/all_gauss.npy', all_gauss_np)
 
-    all_num, _, all_gap, all_spec, all_shape = data_pre_arbitrary(TT_array)
+    all_gap = torch.from_numpy(np.load('data/all_gap.npy')).float()
+    all_spec = torch.from_numpy(np.load('data/all_spec.npy')).float()
+    all_shape = torch.from_numpy(np.load('data/all_shape.npy')).float()
+    # all_gauss = torch.from_numpy(np.load('data/all_gauss.npy')).float()
+
+    all_num = all_gap.shape[0]
 
     train_gap = all_gap[:int(all_num * params.ratio)]
     valid_gap = all_gap[int(all_num * params.ratio):]
 
     train_spec = all_spec[:int(all_num * params.ratio), :]
     valid_spec = all_spec[int(all_num * params.ratio):, :]
+
+    # train_gauss = all_gauss[:int(all_num * params.ratio), :]
+    # valid_gauss = all_gauss[int(all_num * params.ratio):, :]
 
     train_shape = all_shape[:int(all_num * params.ratio), :, :, :]
     valid_shape = all_shape[int(all_num * params.ratio):, :, :, :]
@@ -71,6 +82,11 @@ def train_generator(params):
     optimizer = torch.optim.Adam(net.parameters(), lr=params.lr, betas=(0.5, 0.999))
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, params.step_szie, params.gamma)
 
+    simulator = SimulatorNet(spec_dim=params.spec_dim, d=params.net_depth)
+    load_checkpoint('models/arbitrary_Epoch1000_final_s.pth', simulator, None)
+    for param in simulator.parameters():
+        param.requires_grad = False
+
     criterion_1 = nn.MSELoss()
     criterion_2 = pytorch_ssim.SSIM(window_size=11)
     train_loss_list, val_loss_list, epoch_list = [], [], []
@@ -79,6 +95,8 @@ def train_generator(params):
         load_checkpoint(params.restore_from, net, optimizer)
 
     net.to(device)
+    simulator.to(device)
+    simulator.eval()
 
     if params.freeze:
         for param in net.deconv_block.parameters():
@@ -101,7 +119,12 @@ def train_generator(params):
             net.zero_grad()
 
             output_shapes, output_gaps = net(noise, inputs)
-            train_loss = (params.beta * criterion_1(output_gaps, gaps) - criterion_2(output_shapes, labels))
+            output_specs = simulator(output_shapes, output_gaps)
+            # gap_loss = criterion_1(output_gaps, gaps)
+            spec_loss = criterion_1(output_specs, inputs)
+            shape_loss = 1 - criterion_2(output_shapes, labels)
+            train_loss = spec_loss + shape_loss * 0.1
+            # train_loss = spec_loss
             train_loss.backward()
             optimizer.step()
 
@@ -117,13 +140,20 @@ def train_generator(params):
                 noise = torch.rand(inputs.shape[0], params.noise_dim)
 
                 output_shapes, output_gaps = net(noise, inputs)
-                val_loss += (params.beta * criterion_1(output_gaps, gaps) - criterion_2(output_shapes, labels))
+                output_specs = simulator(output_shapes, output_gaps)
+                # gap_loss = criterion_1(output_gaps, gaps)
+                spec_loss = criterion_1(output_specs, inputs)
+                shape_loss = 1 - criterion_2(output_shapes, labels)
+                val_loss += spec_loss + shape_loss * 0.1
+                # val_loss +=  spec_loss
 
         val_loss /= (i + 1)
         val_loss_list.append(val_loss)
 
-        print('Epoch=%d train_loss: %.7f val_loss: %.7f lr: %.7f' %
-              (epoch, train_loss, val_loss, scheduler.get_lr()[0]))
+        print('Epoch=%d train_loss: %.7f val_loss: %.7f spec_loss: %.7f shape_loss: %.7f lr: %.7f' %
+              (epoch, train_loss, val_loss, spec_loss, shape_loss, scheduler.get_lr()[0]))
+        # print('Epoch=%d train_loss: %.7f val_loss: %.7f lr: %.7f' %
+        #       (epoch, train_loss, val_loss, scheduler.get_lr()[0]))
 
         scheduler.step()
 
@@ -162,14 +192,13 @@ def test_generator(params):
     from image_process import MetaShape
     eng = matlab.engine.start_matlab()
     eng.addpath(eng.genpath('matlab'))
+    eng.addpath(eng.genpath('solvers'))
     # Device configuration
     device = torch.device('cuda:0' if params.cuda else 'cpu')
     print('Test starts, using %s' % (device))
 
     # Visualization configuration
     make_figure_dir()
-
-    _, TT_array = load_mat(os.path.join(current_dir, params.T_path))
 
     net = GeneratorNet(noise_dim=params.noise_dim, spec_dim=params.spec_dim, d=params.net_depth)
     if params.restore_from:
@@ -178,44 +207,33 @@ def test_generator(params):
     net.to(device)
     net.eval()
     wavelength = np.linspace(400, 680, 29)
+    lucky = np.random.randint(low=int(4881 * params.ratio), high=4881)
+    all_spec = np.load('data/all_spec.npy')
+    all_gap = np.load('data/all_gap.npy')
+    all_shape = np.load('data/all_shape.npy')
 
     with torch.no_grad():
-        TE_spec = random_step_spec(wavelength)
-        TM_spec = TE_spec
-        real_spec = (TE_spec + TM_spec) / 2
-        spec = np.concatenate((TE_spec, TM_spec), axis=0)
-        # spec = TT_array[0, 2:]
-        # real_spec = (spec[: 29] + spec[29:]) / 2
+        # real_spec = all_spec[int(lucky)]
+        real_spec = gauss_spec_valley(wavelength, 600, 20, 0.1) * 0.5
+        spec = np.concatenate((real_spec, real_spec))
         spec = torch.from_numpy(spec).float().view(1, -1)
         noise = torch.rand(1, params.noise_dim)
         spec, noise = spec.to(device), noise.to(device)
         output_img, ouput_gap = net(noise, spec)
         out_img = output_img.view(64, 64).detach().cpu().numpy()
-        out_gap = int(ouput_gap.view(-1).detach().cpu().numpy() * 200 + 200)
+        out_gap = int(np.rint(ouput_gap.view(-1).detach().cpu().numpy() * 200 + 200))
         print(out_gap)
         shape_pred = MetaShape(out_gap)
         shape_pred.img = np.uint8(out_img * 255)
         shape_pred.binary_polygon()
         shape_pred.remove_small_twice()
-        # shape_pred.erode_dilate(struc=3, iterations=2, mode="open")
         shape_pred.pad_boundary()
-        # shape_pred.show_polygon(time=2000)
-        shape_pred.save_polygon("hhhh.png")
-        spec_pred_TE, spec_pred_TM = RCWA_arbitrary(eng, gap=out_gap, img_path="hhhh.png")
-        fake_spec = (np.array(spec_pred_TE) + np.array(spec_pred_TM)) / 2
-        plot_both_parts(wavelength, real_spec, fake_spec.squeeze(), "hhhh_result.png")
+        shape_pred.save_polygon("figures/test_output/hhhh.png")
+        spec_pred_TE, spec_pred_TM = RCWA_arbitrary(eng, gap=out_gap, img_path="figures/test_output/hhhh.png")
+        fake_spec = np.array(spec_pred_TE)
+        plot_both_parts(wavelength, real_spec[0:29], fake_spec.squeeze(), "hhhh_result.png")
 
     print('Finished Testing \n')
-
-
-def diff_tensor(a):
-    a_new_right = torch.ones([a.shape[0], a.shape[1] + 1])
-    a_new_right[:, 1:] = a
-    a_new_left = torch.ones([a.shape[0], a.shape[1] + 1])
-    a_new_left[:, :-1] = a
-    a_diff = a_new_left - a_new_right
-    a_diff = a_diff[:, 1:-1]
-    return a_diff
 
 
 def train_simulator(params):
@@ -239,17 +257,28 @@ def train_simulator(params):
     }
 
     # Data configuration
-    print("Waiting for data preparation...")
-    _, TT_array = load_mat(os.path.join(current_dir, params.T_path))
-    np.random.shuffle(TT_array)
+    if not (os.path.exists('data/all_gap.npy') and os.path.exists('data/all_shape.npy') and os.path.exists('data/all_spec.npy') and os.path.exists('data/all_gauss.npy')):
+        _, _, all_gap_np, all_spec_np, all_shape_np, all_gauss_np = data_pre_arbitrary(params.T_path)
+        np.save('data/all_gap.npy', all_gap_np)
+        np.save('data/all_spec.npy', all_spec_np)
+        np.save('data/all_shape.npy', all_shape_np)
+        # np.save('data/all_gauss.npy', all_gauss_np)
 
-    all_num, _, all_gap, all_spec, all_shape = data_pre_arbitrary(TT_array)
+    all_gap = torch.from_numpy(np.load('data/all_gap.npy')).float()
+    all_spec = torch.from_numpy(np.load('data/all_spec.npy')).float()
+    all_shape = torch.from_numpy(np.load('data/all_shape.npy')).float()
+    # all_gauss = torch.from_numpy(np.load('data/all_gauss.npy')).float()
+
+    all_num = all_gap.shape[0]
 
     train_gap = all_gap[:int(all_num * params.ratio)]
     valid_gap = all_gap[int(all_num * params.ratio):]
 
     train_spec = all_spec[:int(all_num * params.ratio), :]
     valid_spec = all_spec[int(all_num * params.ratio):, :]
+
+    # train_gauss = all_gauss[:int(all_num * params.ratio), :]
+    # valid_gauss = all_gauss[int(all_num * params.ratio):, :]
 
     train_shape = all_shape[:int(all_num * params.ratio), :, :, :]
     valid_shape = all_shape[int(all_num * params.ratio):, :, :, :]
@@ -258,7 +287,7 @@ def train_simulator(params):
     train_loader = DataLoader(dataset=train_dataset, batch_size=params.batch_size, shuffle=True)
 
     valid_dataset = TensorDataset(valid_spec, valid_shape, valid_gap)
-    valid_loader = DataLoader(dataset=valid_dataset, batch_size=valid_spec.shape[0], shuffle=True)
+    valid_loader = DataLoader(dataset=valid_dataset, batch_size=valid_gap.shape[0], shuffle=True)
 
     # Net configuration
     net = SimulatorNet(spec_dim=params.spec_dim, d=params.net_depth)
@@ -291,11 +320,7 @@ def train_simulator(params):
             net.zero_grad()
 
             outputs = net(shapes, gaps)
-            train_loss = criterion(F.interpolate(outputs.view(-1, 1, params.spec_dim), 100, mode='linear'),
-                                   F.interpolate(specs.view(-1, 1, params.spec_dim), 100, mode='linear')) + \
-                criterion(F.interpolate(diff_tensor(outputs.squeeze(1)).view(-1, 1, params.spec_dim - 1), 100, mode='linear'),
-                          F.interpolate(diff_tensor(specs.squeeze(1)).view(-1, 1, params.spec_dim - 1), 100, mode='linear'))
-
+            train_loss = criterion(outputs, specs)
             train_loss.backward()
             optimizer.step()
 
@@ -310,11 +335,7 @@ def train_simulator(params):
                 specs, shapes, gaps = specs.to(device), shapes.to(device), gaps.to(device)
 
                 outputs = net(shapes, gaps)
-                val_loss += criterion(F.interpolate(outputs.view(-1, 1, params.spec_dim), 100, mode='linear'),
-                                      F.interpolate(specs.view(-1, 1, params.spec_dim), 100, mode='linear')) + \
-                    criterion(F.interpolate(diff_tensor(outputs.squeeze(1)).view(-1, 1, params.spec_dim - 1), 100, mode='linear'),
-                              F.interpolate(diff_tensor(specs.squeeze(1)).view(-1, 1, params.spec_dim - 1), 100, mode='linear'))
-
+                val_loss += criterion(outputs, specs)
         val_loss /= (i + 1)
         val_loss_list.append(val_loss)
 
@@ -358,6 +379,7 @@ def test_simulator(params):
     from image_process import MetaShape
     eng = matlab.engine.start_matlab()
     eng.addpath(eng.genpath('matlab'))
+    eng.addpath(eng.genpath('solvers'))
     # Device configuration
     device = torch.device('cuda:0' if params.cuda else 'cpu')
     print('Test starts, using %s' % (device))
@@ -365,25 +387,31 @@ def test_simulator(params):
     # Visualization configuration
     make_figure_dir()
 
-    _, TT_array = load_mat(os.path.join(current_dir, params.T_path))
-
     net = SimulatorNet(spec_dim=params.spec_dim, d=params.net_depth)
     if params.restore_from:
         load_checkpoint(os.path.join(current_dir, params.restore_from), net, None)
 
     net.to(device)
     net.eval()
-    wavelength = np.linspace(400, 960, 58)
+    wavelength = np.linspace(400, 680, 29)
+    lucky = np.random.randint(low=int(4881 * params.ratio), high=4881)
+    all_spec = np.load('data/all_spec.npy')
+    all_gap = np.load('data/all_gap.npy')
+    all_shape = np.load('data/all_shape.npy')
 
     with torch.no_grad():
-        real_spec = TT_array[0, 2:]
-        gap = TT_array[0, 1]
-        img = cv2.imread("polygon/0_342.png", flags=cv2.IMREAD_GRAYSCALE)
+        real_spec = all_spec[int(lucky)]
+        gap = all_gap[int(lucky)]
+        img = all_shape[int(lucky)]
+        # cv2.imwrite("hhh.png", img.reshape(64, 64) * 255)
+        spec = torch.from_numpy(real_spec).float().view(1, -1)
         img = torch.from_numpy(img).float().view(1, 1, 64, 64)
         gap = torch.from_numpy(np.array(gap)).float().view(1, 1)
 
         output = net(img, gap)
         fake_spec = output.view(-1).detach().cpu().numpy()
-        plot_both_parts(wavelength, real_spec, fake_spec, "hhhh_result.png")
+        plot_both_parts(wavelength, real_spec[:29], fake_spec[:29], "hhhh_result.png")
+        loss = F.mse_loss(output, spec)
+        print(lucky, loss)
 
     print('Finished Testing \n')

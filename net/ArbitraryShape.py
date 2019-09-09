@@ -2,7 +2,7 @@
 # @Author: Brandon Han
 # @Date:   2019-09-04 14:27:09
 # @Last Modified by:   Brandon Han
-# @Last Modified time: 2019-09-07 12:10:57
+# @Last Modified time: 2019-09-08 20:31:32
 
 import os
 import sys
@@ -49,7 +49,7 @@ def get_gaussian_kernel(kernel_size=3, sigma=2, channels=1):
 
 
 class GeneratorNet(nn.Module):
-    def __init__(self, noise_dim=100, spec_dim=58, d=64, kernel_size=5):
+    def __init__(self, noise_dim=100, spec_dim=58, d=32, kernel_size=5):
         super().__init__()
         self.noise_dim = noise_dim
         self.spec_dim = spec_dim
@@ -70,14 +70,17 @@ class GeneratorNet(nn.Module):
             nn.ConvTranspose2d(d * 8, d * 4, 4, 2, 1),
             nn.BatchNorm2d(d * 4),
             nn.LeakyReLU(0.2),
+            nn.Dropout(p=0.2),
             # ------------------------------------------------------
             nn.ConvTranspose2d(d * 4, d * 2, 4, 2, 1),
             nn.BatchNorm2d(d * 2),
             nn.LeakyReLU(0.2),
+            nn.Dropout(p=0.2),
             # ------------------------------------------------------
             nn.ConvTranspose2d(d * 2, d, 4, 2, 1),
             nn.BatchNorm2d(d),
             nn.LeakyReLU(0.2),
+            nn.Dropout(p=0.2),
             # ------------------------------------------------------
             nn.ConvTranspose2d(d, 1, 4, 2, 1),
             nn.Tanh()
@@ -86,6 +89,7 @@ class GeneratorNet(nn.Module):
             nn.Linear(64 * 64, 64 * 16),
             nn.BatchNorm1d(64 * 16),
             nn.LeakyReLU(0.2),
+            nn.Dropout(p=0.2),
             nn.Linear(64 * 16, 64 * 4),
             nn.BatchNorm1d(64 * 4),
             nn.LeakyReLU(0.2),
@@ -95,7 +99,7 @@ class GeneratorNet(nn.Module):
         )
         self.fc_block_2 = nn.Sequential(
             nn.Linear(spec_dim, 1),
-            nn.ReLU6()
+            nn.Tanh()
         )
         self.short_cut = nn.Sequential(
         )
@@ -110,18 +114,18 @@ class GeneratorNet(nn.Module):
         net = torch.cat((noise, spec), 1)
         img = self.deconv_block_cat(net)
         # net = F.conv2d(net, self.gaussian_kernel, padding=self.pad)
-        # gap_in = self.fc_block_1(img.view(img.size(0), -1)) + self.short_cut(spec_in.view(spec_in.size(0), -1))
-        # gap = self.fc_block_2(gap_in)
-        return (img + 1) / 2
+        gap_in = self.fc_block_1(img.view(img.size(0), -1)) + self.short_cut(spec_in.view(spec_in.size(0), -1))
+        gap = self.fc_block_2(gap_in)
+        return (img + 1) / 2, (gap + 1) / 2
 
 
 class SimulatorNet(nn.Module):
-    def __init__(self, spec_dim=58, d=64):
+    def __init__(self, spec_dim=58, d=32):
         super().__init__()
         self.spec_dim = spec_dim
         self.conv_block_shape = nn.Sequential(
             # ------------------------------------------------------
-            nn.Conv2d(1, d, 4, 2, 1),
+            nn.Conv2d(1, 3 * d // 4, 4, 2, 1),
             nn.LeakyReLU(0.2)
         )
         self.conv_block_gap = nn.Sequential(
@@ -135,27 +139,33 @@ class SimulatorNet(nn.Module):
             nn.Conv2d(d, d * 2, 4, 2, 1),
             nn.BatchNorm2d(d * 2),
             nn.LeakyReLU(0.2),
+            nn.Dropout(p=0.2),
             # ------------------------------------------------------
             nn.Conv2d(d * 2, d * 4, 4, 2, 1),
             nn.BatchNorm2d(d * 4),
             nn.LeakyReLU(0.2),
+            nn.Dropout(p=0.2),
             # ------------------------------------------------------
             nn.Conv2d(d * 4, d * 8, 4, 2, 1),
             nn.BatchNorm2d(d * 8),
             nn.LeakyReLU(0.2),
+            nn.Dropout(p=0.2),
             # ------------------------------------------------------
             nn.Conv2d(d * 8, d * 16, 4, 1, 0),
             nn.Sigmoid()
         )
         self.fc_block = nn.Sequential(
-            nn.Linear(d * 16, 512),
-            nn.BatchNorm1d(512),
-            nn.LeakyReLU(0.2),
-            nn.Linear(512, 128),
+            nn.Linear(d * 16, 128),
             nn.BatchNorm1d(128),
             nn.LeakyReLU(0.2),
+            nn.Dropout(p=0.2),
+            # nn.Linear(512, 128),
+            # nn.BatchNorm1d(128),
+            # nn.LeakyReLU(0.2),
+            # nn.Dropout(p=0.2),
             nn.Linear(128, spec_dim),
-            nn.Sigmoid()
+            # nn.Sigmoid()
+            nn.Tanh()
         )
 
     def weight_init(self, mean, std):
@@ -164,11 +174,11 @@ class SimulatorNet(nn.Module):
 
     def forward(self, shape_in, gap_in):
         shape = self.conv_block_shape(shape_in)
-        # gap = self.conv_block_gap(gap_in.view(-1, 1, 1, 1))
-        # net = torch.cat((shape, gap), 1)
-        spec = self.conv_block_cat(shape)
+        gap = self.conv_block_gap(gap_in.view(-1, 1, 1, 1))
+        net = torch.cat((shape, gap), 1)
+        spec = self.conv_block_cat(net)
         spec = self.fc_block(spec.view(spec.shape[0], -1))
-        return spec
+        return (spec + 1) / 2
 
 
 if __name__ == '__main__':

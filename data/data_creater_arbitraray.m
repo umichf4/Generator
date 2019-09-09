@@ -1,13 +1,13 @@
 clear;
 % change directory here to test on different datasets 
-directory = 'polygon2/';
+directory = 'E:/Umich/Generator/polygon2/';
 files = dir(directory);
 files = files(3:end);
 N = numel(files);
 shape_spec = [];
 thickness = 500;
 acc = 5;
-for i = 1331:1:2000
+for i = 3001:1:3500
     if files(i).name(1) ~= '.'
         tic
         img_path = strcat(directory,files(i).name);
@@ -22,4 +22,4 @@ for i = 1331:1:2000
     end
 end
 
-save 'shape_spec_921.mat' shape_spec
+save 'shape_spec_500.mat' shape_spec
