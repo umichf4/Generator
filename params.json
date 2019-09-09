@@ -4,7 +4,7 @@
     "wlimit": 29,
     "shape": "arbitrary",
     "noise_dim": 100,
-    "spec_dim": 58,
+    "spec_dim": 14,
     "net_depth": 32,
     "batch_size": 128,
     "epochs": 1000,

@@ -2,7 +2,7 @@
 # @Author: Brandon Han
 # @Date:   2019-08-17 15:20:26
 # @Last Modified by:   Brandon Han
-# @Last Modified time: 2019-09-09 12:40:04
+# @Last Modified time: 2019-09-09 16:36:01
 
 import torch
 import torch.nn as nn
@@ -43,25 +43,30 @@ def train_generator(params):
     }
 
     # Data configuration
-    if not (os.path.exists('data/all_gap.npy') and os.path.exists('data/all_shape.npy') and os.path.exists('data/all_spec.npy') and os.path.exists('data/all_gauss.npy')):
-        _, _, all_gap_np, all_spec_np, all_shape_np, all_gauss_np = data_pre_arbitrary(params.T_path)
+    if not (os.path.exists('data/all_ctrast.npy') and os.path.exists('data/all_gap.npy') and os.path.exists('data/all_shape.npy') and os.path.exists('data/all_spec.npy') and os.path.exists('data/all_gauss.npy')):
+        _, _, all_gap_np, all_spec_np, all_shape_np, all_gauss_np, all_ctrast_np = data_pre_arbitrary(params.T_path)
         np.save('data/all_gap.npy', all_gap_np)
         np.save('data/all_spec.npy', all_spec_np)
         np.save('data/all_shape.npy', all_shape_np)
+        np.save('data/all_ctrast.npy', all_ctrast_np)
         # np.save('data/all_gauss.npy', all_gauss_np)
 
     all_gap = torch.from_numpy(np.load('data/all_gap.npy')).float()
     all_spec = torch.from_numpy(np.load('data/all_spec.npy')).float()
     all_shape = torch.from_numpy(np.load('data/all_shape.npy')).float()
+    all_ctrast = torch.from_numpy(np.load('data/all_ctrast.npy')).float()
     # all_gauss = torch.from_numpy(np.load('data/all_gauss.npy')).float()
 
     all_num = all_gap.shape[0]
 
-    train_gap = all_gap[:int(all_num * params.ratio)]
-    valid_gap = all_gap[int(all_num * params.ratio):]
+    # train_gap = all_gap[:int(all_num * params.ratio)]
+    # valid_gap = all_gap[int(all_num * params.ratio):]
 
     train_spec = all_spec[:int(all_num * params.ratio), :]
     valid_spec = all_spec[int(all_num * params.ratio):, :]
+
+    train_ctrast = all_ctrast[:int(all_num * params.ratio), :]
+    valid_ctrast = all_ctrast[int(all_num * params.ratio):, :]
 
     # train_gauss = all_gauss[:int(all_num * params.ratio), :]
     # valid_gauss = all_gauss[int(all_num * params.ratio):, :]
@@ -69,10 +74,10 @@ def train_generator(params):
     train_shape = all_shape[:int(all_num * params.ratio), :, :, :]
     valid_shape = all_shape[int(all_num * params.ratio):, :, :, :]
 
-    train_dataset = TensorDataset(train_spec, train_shape, train_gap)
+    train_dataset = TensorDataset(train_spec, train_shape, train_ctrast)
     train_loader = DataLoader(dataset=train_dataset, batch_size=params.batch_size, shuffle=True)
 
-    valid_dataset = TensorDataset(valid_spec, valid_shape, valid_gap)
+    valid_dataset = TensorDataset(valid_spec, valid_shape, valid_ctrast)
     valid_loader = DataLoader(dataset=valid_dataset, batch_size=valid_spec.shape[0], shuffle=True)
 
     # Net configuration
@@ -90,7 +95,7 @@ def train_generator(params):
     criterion_1 = nn.MSELoss()
     criterion_2 = pytorch_ssim.SSIM(window_size=11)
     train_loss_list, val_loss_list, epoch_list = [], [], []
-    spec_loss, gap_loss, shape_loss = 0, 0, 0
+    spec_loss, shape_loss = 0, 0
 
     if params.restore_from:
         load_checkpoint(params.restore_from, net, optimizer)
@@ -112,20 +117,18 @@ def train_generator(params):
         net.train()
         for i, data in enumerate(train_loader):
 
-            inputs, labels, gaps = data
-            inputs, labels, gaps = inputs.to(device), labels.to(device), gaps.to(device)
+            inputs, labels, ctrasts = data
+            inputs, labels, ctrasts = inputs.to(device), labels.to(device), ctrasts.to(device)
             noise = torch.rand(inputs.shape[0], params.noise_dim)
 
             optimizer.zero_grad()
             net.zero_grad()
 
-            output_shapes, output_gaps = net(noise, inputs)
+            output_shapes, output_gaps = net(noise, ctrasts)
             output_specs = simulator(output_shapes, output_gaps)
-            # gap_loss = criterion_1(output_gaps, gaps)
             spec_loss = criterion_1(output_specs, inputs)
-            # shape_loss = 1 - criterion_2(output_shapes, labels)
-            train_loss = spec_loss + shape_loss * 0.1 + gap_loss
-            # train_loss = spec_loss
+            shape_loss = 1 - criterion_2(output_shapes, labels)
+            train_loss = spec_loss + shape_loss * 0.1
             train_loss.backward()
             optimizer.step()
 
@@ -136,17 +139,15 @@ def train_generator(params):
         val_loss = 0
         with torch.no_grad():
             for i, data in enumerate(valid_loader):
-                inputs, labels, gaps = data
-                inputs, labels, gaps = inputs.to(device), labels.to(device), gaps.to(device)
+                inputs, labels, ctrasts = data
+                inputs, labels, ctrasts = inputs.to(device), labels.to(device), ctrasts.to(device)
                 noise = torch.rand(inputs.shape[0], params.noise_dim)
 
-                output_shapes, output_gaps = net(noise, inputs)
+                output_shapes, output_gaps = net(noise, ctrasts)
                 output_specs = simulator(output_shapes, output_gaps)
-                # gap_loss = criterion_1(output_gaps, gaps)
                 spec_loss = criterion_1(output_specs, inputs)
-                # shape_loss = 1 - criterion_2(output_shapes, labels)
-                val_loss += spec_loss + shape_loss * 0.1 + gap_loss
-                # val_loss +=  spec_loss
+                shape_loss = 1 - criterion_2(output_shapes, labels)
+                val_loss += spec_loss + shape_loss * 0.1
 
         val_loss /= (i + 1)
         val_loss_list.append(val_loss)
@@ -214,10 +215,10 @@ def test_generator(params):
     # all_shape = np.load('data/all_shape.npy')
 
     with torch.no_grad():
-        real_spec = all_spec[int(lucky)]
-        # real_spec = gauss_spec_valley(wavelength, 600, 30, 0.1) * 0.6
-        # spec = np.concatenate((real_spec, real_spec))
-        spec = torch.from_numpy(real_spec).float().view(1, -1)
+        # real_spec = all_spec[int(lucky)]
+        real_spec = gauss_spec_valley(wavelength, 440, 30, 0.1)
+        spec = np.concatenate((real_spec, real_spec))
+        spec = torch.from_numpy(spec).float().view(1, -1)
         noise = torch.rand(1, params.noise_dim)
         spec, noise = spec.to(device), noise.to(device)
         output_img, ouput_gap = net(noise, spec)
@@ -230,6 +231,7 @@ def test_generator(params):
         shape_pred.remove_small_twice()
         shape_pred.pad_boundary()
         shape_pred.save_polygon("figures/test_output/hhhh.png")
+
         spec_pred_TE, spec_pred_TM = RCWA_arbitrary(eng, gap=out_gap, img_path="figures/test_output/hhhh.png")
         fake_spec = np.array(spec_pred_TE)
         plot_both_parts(wavelength, real_spec[0:29], fake_spec.squeeze(), "hhhh_result.png")

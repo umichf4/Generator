@@ -2,7 +2,7 @@
 # @Author: Brandon Han
 # @Date:   2019-08-17 15:20:26
 # @Last Modified by:   Brandon Han
-# @Last Modified time: 2019-09-08 19:51:31
+# @Last Modified time: 2019-09-09 16:28:02
 import torch
 import os
 import json
@@ -310,7 +310,7 @@ def random_gauss_spec(f):
     depth = np.random.uniform(low=0.0, high=0.05)
     mean = np.random.uniform(low=400, high=600)
     var = np.random.uniform(low=20, high=40)
-    return 1- (1 - depth) * np.exp(-(f - mean) ** 2 / (2 * (var ** 2)))
+    return 1 - (1 - depth) * np.exp(-(f - mean) ** 2 / (2 * (var ** 2)))
 
 
 def random_step_spec(f):
@@ -368,6 +368,21 @@ def gauss10_curve_fit(spec):
     return popt
 
 
+def cal_contrast(wavelength, spec, spec_start, spec_end):
+    spec_range_in = spec[np.argwhere((wavelength <= spec_end) & (wavelength >= spec_start))]
+    sepc_range_out = spec[np.argwhere((wavelength > spec_end) | (wavelength < spec_start))]
+    contrast = np.max(spec_range_in) / np.max(sepc_range_out)
+    return contrast
+
+
+def cal_contrast_vector(spec):
+    wavelength = np.linspace(400, 680, 29)
+    contrast_vector = np.zeros(7)
+    for i in range(len(contrast_vector)):
+        contrast_vector[i] = cal_contrast(wavelength, spec, 400 + i * 40, 440 + i * 40)
+    return contrast_vector
+
+
 def data_pre_arbitrary(T_path):
     print("Waiting for data preparation...")
     _, TT_array = load_mat(T_path)
@@ -377,6 +392,7 @@ def data_pre_arbitrary(T_path):
     all_spec_np = TT_array[:, 2:]
     all_gauss_np = np.zeros((all_num, 60))
     all_shape_np = np.zeros((all_num, 1, 64, 64))
+    all_ctrast_np = np.zeros((all_num, 14))
     with tqdm(total=all_num, ncols=70) as t:
         delete_list = []
         for i in range(all_num):
@@ -395,6 +411,9 @@ def data_pre_arbitrary(T_path):
             if not find:
                 print("NO match with " + str(i) + ", it will be deleted later!")
                 delete_list.append(i)
+            # calculate contrast
+            all_ctrast_np[i, :] = np.concatenate((cal_contrast_vector(
+                all_spec_np[i, :29]), cal_contrast_vector(all_spec_np[i, 29:])))
             # gauss curve fit
             # try:
             #     all_gauss_np[i, :] = np.concatenate(
@@ -410,9 +429,10 @@ def data_pre_arbitrary(T_path):
     all_spec_np = np.delete(all_spec_np, delete_list, axis=0)
     all_shape_np = np.delete(all_shape_np, delete_list, axis=0)
     all_gauss_np = np.delete(all_gauss_np, delete_list, axis=0)
+    all_ctrast_np = np.delete(all_ctrast_np, delete_list, axis=0)
     print("Data preparation done! All get {} elements!".format(all_num - len(delete_list)))
 
-    return all_num, all_name_np, all_gap_np, all_spec_np, all_shape_np, all_gauss_np
+    return all_num, all_name_np, all_gap_np, all_spec_np, all_shape_np, all_gauss_np, all_ctrast_np
 
 
 def plot_possible_spec(spec, title):
@@ -438,6 +458,4 @@ def plot_possible_spec(spec, title):
 
 
 if __name__ == '__main__':
-    # _, TT_array = load_mat('data/shape_spec_3881.mat')
-    gauss = np.load('data/all_gauss.npy')
-    plot_possible_spec(gauss[:, :10], 'TM')
+    _, TT_array = load_mat('data/shape_spec_5881.mat')
