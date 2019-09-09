@@ -2,7 +2,7 @@
 # @Author: Brandon Han
 # @Date:   2019-08-17 15:20:26
 # @Last Modified by:   Brandon Han
-# @Last Modified time: 2019-09-09 00:11:16
+# @Last Modified time: 2019-09-09 11:12:45
 
 import torch
 import torch.nn as nn
@@ -90,6 +90,7 @@ def train_generator(params):
     criterion_1 = nn.MSELoss()
     criterion_2 = pytorch_ssim.SSIM(window_size=11)
     train_loss_list, val_loss_list, epoch_list = [], [], []
+    spec_loss, gap_loss, shape_loss = 0, 0, 0
 
     if params.restore_from:
         load_checkpoint(params.restore_from, net, optimizer)
@@ -122,8 +123,8 @@ def train_generator(params):
             output_specs = simulator(output_shapes, output_gaps)
             # gap_loss = criterion_1(output_gaps, gaps)
             spec_loss = criterion_1(output_specs, inputs)
-            shape_loss = 1 - criterion_2(output_shapes, labels)
-            train_loss = spec_loss + shape_loss * 0.1
+            # shape_loss = 1 - criterion_2(output_shapes, labels)
+            train_loss = spec_loss + shape_loss * 0.1 + gap_loss
             # train_loss = spec_loss
             train_loss.backward()
             optimizer.step()
@@ -143,8 +144,8 @@ def train_generator(params):
                 output_specs = simulator(output_shapes, output_gaps)
                 # gap_loss = criterion_1(output_gaps, gaps)
                 spec_loss = criterion_1(output_specs, inputs)
-                shape_loss = 1 - criterion_2(output_shapes, labels)
-                val_loss += spec_loss + shape_loss * 0.1
+                # shape_loss = 1 - criterion_2(output_shapes, labels)
+                val_loss += spec_loss + shape_loss * 0.1 + gap_loss
                 # val_loss +=  spec_loss
 
         val_loss /= (i + 1)
