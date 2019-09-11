@@ -2,7 +2,7 @@
 # @Author: Brandon Han
 # @Date:   2019-09-04 14:27:09
 # @Last Modified by:   Brandon Han
-# @Last Modified time: 2019-09-08 20:31:32
+# @Last Modified time: 2019-09-09 22:41:38
 
 import os
 import sys
@@ -184,16 +184,16 @@ class SimulatorNet(nn.Module):
 if __name__ == '__main__':
     import torchsummary
 
-    # if torch.cuda.is_available():
-    #     generator = GeneratorNet().cuda()
-    # else:
-    #     generator = GeneratorNet()
-
-    # torchsummary.summary(generator, [tuple([100]), tuple([58])])
-
     if torch.cuda.is_available():
-        simulator = SimulatorNet().cuda()
+        generator = GeneratorNet().cuda()
     else:
-        simulator = SimulatorNet()
+        generator = GeneratorNet()
 
-    torchsummary.summary(simulator, [(1, 64, 64), tuple([1])])
+    torchsummary.summary(generator, [tuple([100]), tuple([58])])
+
+    # if torch.cuda.is_available():
+    #     simulator = SimulatorNet().cuda()
+    # else:
+    #     simulator = SimulatorNet()
+
+    # torchsummary.summary(simulator, [(1, 64, 64), tuple([1])])

@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # @Author: Brandon Han
 # @Date:   2019-08-17 15:20:26
-# @Last Modified by:   Brandon Han
-# @Last Modified time: 2019-09-09 18:48:08
+# @Last Modified by:   BrandonHanx
+# @Last Modified time: 2019-09-11 13:31:30
 
 import torch
 import torch.nn as nn
@@ -43,13 +43,8 @@ def train_generator(params):
     }
 
     # Data configuration
-    if not (os.path.exists('data/all_ctrast.npy') and os.path.exists('data/all_gap.npy') and os.path.exists('data/all_shape.npy') and os.path.exists('data/all_spec.npy') and os.path.exists('data/all_gauss.npy')):
-        _, _, all_gap_np, all_spec_np, all_shape_np, all_gauss_np, all_ctrast_np = data_pre_arbitrary(params.T_path)
-        np.save('data/all_gap.npy', all_gap_np)
-        np.save('data/all_spec.npy', all_spec_np)
-        np.save('data/all_shape.npy', all_shape_np)
-        np.save('data/all_ctrast.npy', all_ctrast_np)
-        # np.save('data/all_gauss.npy', all_gauss_np)
+    if not (os.path.exists('data/all_ctrast.npy') and os.path.exists('data/all_gap.npy') and os.path.exists('data/all_shape.npy') and os.path.exists('data/all_spec.npy')):
+        data_pre_arbitrary(params.T_path)
 
     all_gap = torch.from_numpy(np.load('data/all_gap.npy')).float()
     all_spec = torch.from_numpy(np.load('data/all_spec.npy')).float()
@@ -218,7 +213,7 @@ def test_generator(params):
     with torch.no_grad():
         real_spec = all_spec[int(lucky)]
         # ctrast = all_ctrast[int(lucky)]
-        desire = [0.5, 0.5, 0.5, 0.5, 0.3, 0.1, 2, 0.5, 0.5, 0.5, 0.5, 0.3, 0.1, 2]
+        desire = [1, 1, 0.4, 0.1, 0.4, 1, 1, 0.8, 0.8, 0.8, 0.8, 0.1, 0.3, 1]
         ctrast = np.array(desire)
         # real_spec = gauss_spec_valley(wavelength, 440, 30, 0.1)
         # spec = np.concatenate((real_spec, real_spec))
@@ -237,9 +232,11 @@ def test_generator(params):
         shape_pred.save_polygon("figures/test_output/hhhh.png")
 
         spec_pred_TE, spec_pred_TM = RCWA_arbitrary(eng, gap=out_gap, img_path="figures/test_output/hhhh.png")
-        fake_spec = np.array(spec_pred_TE)
+        fake_TM = np.array(spec_pred_TM)
+        fake_TE = np.array(spec_pred_TE)
         # plot_both_parts(wavelength, real_spec[0:29], fake_spec.squeeze(), "hhhh_result.png")
-        plot_single_part(wavelength, fake_spec.squeeze(), "hhhh_result.png")
+        plot_both_parts_2(wavelength, fake_TM.squeeze(), ctrast[7:], "hhhh_result_TM.png")
+        plot_both_parts_2(wavelength, fake_TE.squeeze(), ctrast[:7], "hhhh_result_TE.png")
 
     print('Finished Testing \n')
 
@@ -265,16 +262,13 @@ def train_simulator(params):
     }
 
     # Data configuration
-    if not (os.path.exists('data/all_gap.npy') and os.path.exists('data/all_shape.npy') and os.path.exists('data/all_spec.npy') and os.path.exists('data/all_gauss.npy')):
-        _, _, all_gap_np, all_spec_np, all_shape_np, all_gauss_np = data_pre_arbitrary(params.T_path)
-        np.save('data/all_gap.npy', all_gap_np)
-        np.save('data/all_spec.npy', all_spec_np)
-        np.save('data/all_shape.npy', all_shape_np)
-        # np.save('data/all_gauss.npy', all_gauss_np)
+    if not (os.path.exists('data/all_gap.npy') and os.path.exists('data/all_shape.npy') and os.path.exists('data/all_spec.npy')):
+        data_pre_arbitrary(params.T_path)
+        data_enhancement()
 
-    all_gap = torch.from_numpy(np.load('data/all_gap.npy')).float()
-    all_spec = torch.from_numpy(np.load('data/all_spec.npy')).float()
-    all_shape = torch.from_numpy(np.load('data/all_shape.npy')).float()
+    all_gap = torch.from_numpy(np.load('data/all_gap_en.npy')).float()
+    all_spec = torch.from_numpy(np.load('data/all_spec_en.npy')).float()
+    all_shape = torch.from_numpy(np.load('data/all_shape_en.npy')).float()
     # all_gauss = torch.from_numpy(np.load('data/all_gauss.npy')).float()
 
     all_num = all_gap.shape[0]
@@ -395,14 +389,14 @@ def test_simulator(params):
     # Visualization configuration
     make_figure_dir()
 
-    net = SimulatorNet(spec_dim=params.spec_dim, d=params.net_depth)
+    net = SimulatorNet(spec_dim=58, d=params.net_depth)
     if params.restore_from:
         load_checkpoint(os.path.join(current_dir, params.restore_from), net, None)
 
     net.to(device)
     net.eval()
     wavelength = np.linspace(400, 680, 29)
-    lucky = np.random.randint(low=int(4881 * params.ratio), high=4881)
+    lucky = np.random.randint(low=int(1881 * params.ratio), high=2881)
     all_spec = np.load('data/all_spec.npy')
     all_gap = np.load('data/all_gap.npy')
     all_shape = np.load('data/all_shape.npy')
@@ -418,7 +412,8 @@ def test_simulator(params):
 
         output = net(img, gap)
         fake_spec = output.view(-1).detach().cpu().numpy()
-        plot_both_parts(wavelength, real_spec[:29], fake_spec[:29], "hhhh_result.png")
+        plot_both_parts(wavelength, real_spec[:29], fake_spec[:29], "hhhh_result_TE.png")
+        plot_both_parts(wavelength, real_spec[29:], fake_spec[29:], "hhhh_result_TM.png")
         loss = F.mse_loss(output, spec)
         print(lucky, loss)
 

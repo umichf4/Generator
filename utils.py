@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # @Author: Brandon Han
 # @Date:   2019-08-17 15:20:26
-# @Last Modified by:   Brandon Han
-# @Last Modified time: 2019-09-09 18:13:37
+# @Last Modified by:   BrandonHanx
+# @Last Modified time: 2019-09-11 13:32:55
 import torch
 import os
 import json
@@ -14,6 +14,7 @@ import scipy.io as scio
 import cv2
 from tqdm import tqdm
 from scipy.optimize import curve_fit
+from imutils import rotate_bound
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -137,6 +138,40 @@ def plot_both_parts(wavelength, real, fake, name, legend='Real and Fake', interp
     ax2.spines['left'].set_color(color_left)
     ax2.spines['right'].set_color(color_right)
     plt.ylim((0, 1))
+    plt.title(legend)
+
+    fig.tight_layout()  # otherwise the right y-label is slightly clipped
+    plt.savefig(save_dir)
+
+
+def plot_both_parts_2(wavelength, real, cv, name, legend='Spectrum and Contrast Vector', interpolate=True):
+
+    color_left = 'blue'
+    color_right = 'red'
+    save_dir = os.path.join(current_dir, 'figures/test_output', name)
+
+    fig, ax1 = plt.subplots()
+
+    ax1.set_xlabel('Wavelength (nm)')
+    ax1.set_ylabel('Transimttance', color=color_left)
+    ax1.plot(wavelength, real, 'o', color=color_left, label='Spectrum')
+    if interpolate:
+        new_real = interploate(real)
+        new_wavelength = interploate(wavelength)
+        ax1.plot(new_wavelength, new_real, color=color_left)
+    # ax1.legend()
+    ax1.tick_params(axis='y', labelcolor=color_left)
+    ax1.grid()
+    plt.ylim((0, 1))
+
+    ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
+    ax2.set_ylabel('Contrast', color=color_right)  # we already handled the x-label with ax1
+    ax2.step(np.linspace(400, 680, 8), np.append(cv, cv[-1]), where='post', color=color_right, label='Contrast Vector')
+    # ax2.legend()
+    ax2.tick_params(axis='y', labelcolor=color_right)
+    ax2.spines['left'].set_color(color_left)
+    ax2.spines['right'].set_color(color_right)
+    # plt.ylim((0, 1))
     plt.title(legend)
 
     fig.tight_layout()  # otherwise the right y-label is slightly clipped
@@ -381,6 +416,30 @@ def cal_contrast_vector(spec):
     return contrast_vector
 
 
+def plot_possible_spec(spec):
+    min_index = np.argmin(spec, axis=1)
+    min_sort = np.argsort(min_index)
+    TE_spec = spec[min_sort, :]
+    wavelength = np.linspace(400, 680, 29)
+    # TE_spec = cv2.resize(src=TE_spec, dsize=(1000, 1881), interpolation=cv2.INTER_CUBIC)
+
+    plt.figure()
+    plt.pcolor(TE_spec, cmap=plt.cm.jet)
+    plt.xlabel('Wavelength (nm)')
+    # plt.xlabel('Index of elements')
+    plt.ylabel('Index of Devices')
+    plt.title('Possible Contrast Distribution (TM)')
+    # plt.title('Gaussian Amplitude after Decomposition')
+    # plt.title('Possible Spectrums of Arbitrary Shapes (' + title + ')')
+    # plt.title(r'Possible Spectrums of Square Shape ($T_iO_2$)')
+    # plt.xticks(np.arange(len(wavelength), step=4), np.uint16(wavelength[::4]))
+    plt.xticks(np.arange(8), np.uint16(wavelength[::4]))
+    plt.yticks([])
+    cb = plt.colorbar()
+    cb.ax.set_ylabel('Contrast')
+    plt.show()
+
+
 def data_pre_arbitrary(T_path):
     print("Waiting for data preparation...")
     _, TT_array = load_mat(T_path)
@@ -388,7 +447,7 @@ def data_pre_arbitrary(T_path):
     all_name_np = TT_array[:, 0]
     all_gap_np = (TT_array[:, 1] - 200) / 200
     all_spec_np = TT_array[:, 2:]
-    all_gauss_np = np.zeros((all_num, 60))
+    # all_gauss_np = np.zeros((all_num, 60))
     all_shape_np = np.zeros((all_num, 1, 64, 64))
     all_ctrast_np = np.zeros((all_num, 14))
     with tqdm(total=all_num, ncols=70) as t:
@@ -426,37 +485,37 @@ def data_pre_arbitrary(T_path):
     all_gap_np = np.delete(all_gap_np, delete_list, axis=0)
     all_spec_np = np.delete(all_spec_np, delete_list, axis=0)
     all_shape_np = np.delete(all_shape_np, delete_list, axis=0)
-    all_gauss_np = np.delete(all_gauss_np, delete_list, axis=0)
+    # all_gauss_np = np.delete(all_gauss_np, delete_list, axis=0)
     all_ctrast_np = np.delete(all_ctrast_np, delete_list, axis=0)
-    print("Data preparation done! All get {} elements!".format(all_num - len(delete_list)))
+    np.save('data/all_gap.npy', all_gap_np)
+    np.save('data/all_spec.npy', all_spec_np)
+    np.save('data/all_shape.npy', all_shape_np)
+    np.save('data/all_ctrast.npy', all_ctrast_np)
 
-    return all_num, all_name_np, all_gap_np, all_spec_np, all_shape_np, all_gauss_np, all_ctrast_np
 
-
-def plot_possible_spec(spec):
-    min_index = np.argmin(spec, axis=1)
-    min_sort = np.argsort(min_index)
-    TE_spec = spec[min_sort, :]
-    wavelength = np.linspace(400, 680, 29)
-    # TE_spec = cv2.resize(src=TE_spec, dsize=(1000, 1881), interpolation=cv2.INTER_CUBIC)
-
-    plt.figure()
-    plt.pcolor(TE_spec, cmap=plt.cm.jet)
-    plt.xlabel('Wavelength (nm)')
-    # plt.xlabel('Index of elements')
-    plt.ylabel('Index of Devices')
-    plt.title('Possible Contrast Distribution (TM)')
-    # plt.title('Gaussian Amplitude after Decomposition')
-    # plt.title('Possible Spectrums of Arbitrary Shapes (' + title + ')')
-    # plt.title(r'Possible Spectrums of Square Shape ($T_iO_2$)')
-    # plt.xticks(np.arange(len(wavelength), step=4), np.uint16(wavelength[::4]))
-    plt.xticks(np.arange(8), np.uint16(wavelength[::4]))
-    plt.yticks([])
-    cb = plt.colorbar()
-    cb.ax.set_ylabel('Contrast')
-    plt.show()
+def data_enhancement():
+    print("Waiting for Data Enhancement...")
+    all_gap_org = np.load('data/all_gap.npy')
+    all_spec_org = np.load('data/all_spec.npy')
+    all_shape_org = np.load('data/all_shape.npy')
+    all_spec_90_270 = np.zeros_like(all_spec_org)
+    all_shape_90, all_shape_270, all_shape_180 = np.zeros_like(
+        all_shape_org), np.zeros_like(all_shape_org), np.zeros_like(all_shape_org)
+    for i in range(all_gap_org.shape[0]):
+        all_spec_90_270[i, :] = np.concatenate((all_spec_org[i, 29:], all_spec_org[i, :29]), axis=1)
+        all_shape_90[i, 0, :, :] = rotate_bound(all_shape_org[i, 0, :, :], 90)
+        all_shape_180[i, 0, :, :] = rotate_bound(all_shape_org[i, 0, :, :], 180)
+        all_shape_270[i, 0, :, :] = rotate_bound(all_shape_org[i, 0, :, :], 270)
+    all_gap_en = np.concatenate((all_gap_org, all_gap_org, all_gap_org, all_gap_org), axis=0)
+    all_spec_en = np.concatenate((all_spec_org, all_spec_90_270, all_spec_org, all_spec_90_270), axis=0)
+    all_shape_en = np.concatenate((all_shape_org, all_shape_90, all_shape_180, all_shape_270), axis=0)
+    np.save('data/all_gap_en.npy', all_gap_en)
+    np.save('data/all_spec_en.npy', all_spec_en)
+    np.save('data/all_shape_en.npy', all_shape_en)
 
 
 if __name__ == '__main__':
     all_ctrast = np.load('data/all_ctrast.npy')
-    plot_possible_spec(keep_range(all_ctrast[:, 7:], high=3))
+    all_spec = np.load('data/all_spec.npy')
+    wavelength = np.linspace(400, 680, 29)
+    plot_both_parts_2(wavelength, all_spec[0, :29], all_ctrast[0, :7], 'contrast_vector.png')

@@ -7,7 +7,7 @@ N = numel(files);
 shape_spec = [];
 thickness = 500;
 acc = 5;
-for i = 3001:1:3500
+for i = 4001:1:4119
     if files(i).name(1) ~= '.'
         tic
         img_path = strcat(directory,files(i).name);
@@ -22,4 +22,4 @@ for i = 3001:1:3500
     end
 end
 
-save 'shape_spec_500.mat' shape_spec
+save 'shape_spec_119.mat' shape_spec
