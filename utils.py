@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # @Author: Brandon Han
 # @Date:   2019-08-17 15:20:26
-# @Last Modified by:   BrandonHanx
-# @Last Modified time: 2019-09-11 13:32:55
+# @Last Modified by:   Brandon Han
+# @Last Modified time: 2019-09-11 15:28:58
 import torch
 import os
 import json
@@ -441,7 +441,7 @@ def plot_possible_spec(spec):
 
 
 def data_pre_arbitrary(T_path):
-    print("Waiting for data preparation...")
+    print("Waiting for Data Preparation...")
     _, TT_array = load_mat(T_path)
     all_num = TT_array.shape[0]
     all_name_np = TT_array[:, 0]
@@ -491,6 +491,7 @@ def data_pre_arbitrary(T_path):
     np.save('data/all_spec.npy', all_spec_np)
     np.save('data/all_shape.npy', all_shape_np)
     np.save('data/all_ctrast.npy', all_ctrast_np)
+    print("Data Preparation Done! All get {} elements!".format(all_num - len(delete_list)))
 
 
 def data_enhancement():
@@ -501,17 +502,20 @@ def data_enhancement():
     all_spec_90_270 = np.zeros_like(all_spec_org)
     all_shape_90, all_shape_270, all_shape_180 = np.zeros_like(
         all_shape_org), np.zeros_like(all_shape_org), np.zeros_like(all_shape_org)
-    for i in range(all_gap_org.shape[0]):
-        all_spec_90_270[i, :] = np.concatenate((all_spec_org[i, 29:], all_spec_org[i, :29]), axis=1)
-        all_shape_90[i, 0, :, :] = rotate_bound(all_shape_org[i, 0, :, :], 90)
-        all_shape_180[i, 0, :, :] = rotate_bound(all_shape_org[i, 0, :, :], 180)
-        all_shape_270[i, 0, :, :] = rotate_bound(all_shape_org[i, 0, :, :], 270)
+    with tqdm(total=all_gap_org.shape[0], ncols=70) as t:
+        for i in range(all_gap_org.shape[0]):
+            all_spec_90_270[i, :] = np.concatenate((all_spec_org[i, 29:], all_spec_org[i, :29]))
+            all_shape_90[i, 0, :, :] = rotate_bound(all_shape_org[i, 0, :, :], 90)
+            all_shape_180[i, 0, :, :] = rotate_bound(all_shape_org[i, 0, :, :], 180)
+            all_shape_270[i, 0, :, :] = rotate_bound(all_shape_org[i, 0, :, :], 270)
+            t.update()
     all_gap_en = np.concatenate((all_gap_org, all_gap_org, all_gap_org, all_gap_org), axis=0)
     all_spec_en = np.concatenate((all_spec_org, all_spec_90_270, all_spec_org, all_spec_90_270), axis=0)
     all_shape_en = np.concatenate((all_shape_org, all_shape_90, all_shape_180, all_shape_270), axis=0)
     np.save('data/all_gap_en.npy', all_gap_en)
     np.save('data/all_spec_en.npy', all_spec_en)
     np.save('data/all_shape_en.npy', all_shape_en)
+    print('Data Enhancement Done!')
 
 
 if __name__ == '__main__':

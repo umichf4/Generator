@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # @Author: Brandon Han
 # @Date:   2019-09-04 14:27:09
-# @Last Modified by:   Brandon Han
-# @Last Modified time: 2019-09-09 22:41:38
+# @Last Modified by:   BrandonHanx
+# @Last Modified time: 2019-09-11 13:50:50
 
 import os
 import sys
@@ -49,14 +49,14 @@ def get_gaussian_kernel(kernel_size=3, sigma=2, channels=1):
 
 
 class GeneratorNet(nn.Module):
-    def __init__(self, noise_dim=100, spec_dim=58, d=32, kernel_size=5):
+    def __init__(self, noise_dim=100, ctrast_dim=58, d=32, kernel_size=5):
         super().__init__()
         self.noise_dim = noise_dim
-        self.spec_dim = spec_dim
-        self.gaussian_kernel = get_gaussian_kernel(kernel_size)
-        self.pad = (kernel_size - 1) // 2
-        self.deconv_block_spec = nn.Sequential(
-            nn.ConvTranspose2d(self.spec_dim, d * 4, 4, 1, 0),
+        self.ctrast_dim = ctrast_dim
+        # self.gaussian_kernel = get_gaussian_kernel(kernel_size)
+        # self.pad = (kernel_size - 1) // 2
+        self.deconv_block_ctrast = nn.Sequential(
+            nn.ConvTranspose2d(self.ctrast_dim, d * 4, 4, 1, 0),
             nn.BatchNorm2d(d * 4),
             nn.LeakyReLU(0.2),
         )
@@ -93,12 +93,12 @@ class GeneratorNet(nn.Module):
             nn.Linear(64 * 16, 64 * 4),
             nn.BatchNorm1d(64 * 4),
             nn.LeakyReLU(0.2),
-            nn.Linear(64 * 4, spec_dim),
-            nn.BatchNorm1d(spec_dim),
+            nn.Linear(64 * 4, ctrast_dim),
+            nn.BatchNorm1d(ctrast_dim),
             nn.LeakyReLU(0.2)
         )
         self.fc_block_2 = nn.Sequential(
-            nn.Linear(spec_dim, 1),
+            nn.Linear(ctrast_dim, 1),
             nn.Tanh()
         )
         self.short_cut = nn.Sequential(
@@ -108,13 +108,13 @@ class GeneratorNet(nn.Module):
         for m in self._modules:
             normal_init(self._modules[m], mean, std)
 
-    def forward(self, noise_in, spec_in):
+    def forward(self, noise_in, ctrast_in):
         noise = self.deconv_block_noise(noise_in.view(-1, self.noise_dim, 1, 1))
-        spec = self.deconv_block_spec(spec_in.view(-1, self.spec_dim, 1, 1))
-        net = torch.cat((noise, spec), 1)
+        ctrast = self.deconv_block_ctrast(ctrast_in.view(-1, self.ctrast_dim, 1, 1))
+        net = torch.cat((noise, ctrast), 1)
         img = self.deconv_block_cat(net)
         # net = F.conv2d(net, self.gaussian_kernel, padding=self.pad)
-        gap_in = self.fc_block_1(img.view(img.size(0), -1)) + self.short_cut(spec_in.view(spec_in.size(0), -1))
+        gap_in = self.fc_block_1(img.view(img.size(0), -1)) + self.short_cut(ctrast_in.view(ctrast_in.size(0), -1))
         gap = self.fc_block_2(gap_in)
         return (img + 1) / 2, (gap + 1) / 2
 

@@ -17,9 +17,9 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--save_model_dir', default='models', type=str)
 parser.add_argument('--restore_from', default=None, type=str)
 parser.add_argument('--json_path', default='params.json', type=str)
-parser.add_argument('--T_path', default='data\\shape_spec_4881.mat', type=str)
+parser.add_argument('--T_path', default='data\\shape_spec_6500.mat', type=str)
 parser.add_argument('--test', action='store_true', default=False)
-parser.add_argument('--freeze', action='store_true', default=False)
+# parser.add_argument('--freeze', action='store_true', default=False)
 parser.add_argument('--simulator', action='store_true', default=False)
 args = parser.parse_args()
 
@@ -30,7 +30,7 @@ params = Params(json_path)
 params.restore_from = args.restore_from
 params.save_model_dir = args.save_model_dir
 params.T_path = args.T_path
-params.freeze = args.freeze
+# params.freeze = args.freeze
 params.cuda = torch.cuda.is_available()
 
 if args.test and args.simulator:

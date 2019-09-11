@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # @Author: Brandon Han
 # @Date:   2019-08-17 15:20:26
-# @Last Modified by:   BrandonHanx
-# @Last Modified time: 2019-09-11 13:31:30
+# @Last Modified by:   Brandon Han
+# @Last Modified time: 2019-09-11 15:33:00
 
 import torch
 import torch.nn as nn
@@ -43,7 +43,8 @@ def train_generator(params):
     }
 
     # Data configuration
-    if not (os.path.exists('data/all_ctrast.npy') and os.path.exists('data/all_gap.npy') and os.path.exists('data/all_shape.npy') and os.path.exists('data/all_spec.npy')):
+    if not (os.path.exists('data/all_ctrast.npy') and os.path.exists('data/all_gap.npy') and
+            os.path.exists('data/all_shape.npy') and os.path.exists('data/all_spec.npy')):
         data_pre_arbitrary(params.T_path)
 
     all_gap = torch.from_numpy(np.load('data/all_gap.npy')).float()
@@ -53,6 +54,9 @@ def train_generator(params):
     # all_gauss = torch.from_numpy(np.load('data/all_gauss.npy')).float()
 
     all_num = all_gap.shape[0]
+    permutation = np.random.permutation(all_num).tolist()
+    all_gap, all_spec, all_shape, all_ctrast = all_gap[permutation], \
+        all_spec[permutation, :], all_shape[permutation, :, :, :], all_ctrast[permutation, :]
 
     # train_gap = all_gap[:int(all_num * params.ratio)]
     # valid_gap = all_gap[int(all_num * params.ratio):]
@@ -70,19 +74,19 @@ def train_generator(params):
     valid_shape = all_shape[int(all_num * params.ratio):, :, :, :]
 
     train_dataset = TensorDataset(train_spec, train_shape, train_ctrast)
-    train_loader = DataLoader(dataset=train_dataset, batch_size=params.batch_size, shuffle=True)
+    train_loader = DataLoader(dataset=train_dataset, batch_size=params.batch_size_g, shuffle=True)
 
     valid_dataset = TensorDataset(valid_spec, valid_shape, valid_ctrast)
     valid_loader = DataLoader(dataset=valid_dataset, batch_size=valid_spec.shape[0], shuffle=True)
 
     # Net configuration
-    net = GeneratorNet(noise_dim=params.noise_dim, spec_dim=params.spec_dim, d=params.net_depth)
+    net = GeneratorNet(noise_dim=params.noise_dim, ctrast_dim=params.ctrast_dim, d=params.net_depth)
     net.weight_init(mean=0, std=0.02)
 
     optimizer = torch.optim.Adam(net.parameters(), lr=params.lr, betas=(0.5, 0.999))
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, params.step_szie, params.gamma)
 
-    simulator = SimulatorNet(spec_dim=58, d=32)
+    simulator = SimulatorNet(spec_dim=params.spec_dim, d=params.net_depth)
     load_checkpoint('models/arbitrary_Epoch1000_final_s.pth', simulator, None)
     for param in simulator.parameters():
         param.requires_grad = False
@@ -98,10 +102,6 @@ def train_generator(params):
     net.to(device)
     simulator.to(device)
     simulator.eval()
-
-    if params.freeze:
-        for param in net.deconv_block.parameters():
-            param.requires_grad = False
 
     # Start training
     for k in range(params.epochs):
@@ -197,21 +197,21 @@ def test_generator(params):
     # Visualization configuration
     make_figure_dir()
 
-    net = GeneratorNet(noise_dim=params.noise_dim, spec_dim=params.spec_dim, d=params.net_depth)
+    net = GeneratorNet(noise_dim=params.noise_dim, ctrast_dim=params.ctrast_dim, d=params.net_depth)
     if params.restore_from:
         load_checkpoint(os.path.join(current_dir, params.restore_from), net, None)
 
     net.to(device)
     net.eval()
     wavelength = np.linspace(400, 680, 29)
-    lucky = np.random.randint(low=int(5881 * params.ratio), high=5881)
-    all_spec = np.load('data/all_spec.npy')
-    all_ctrast = np.load('data/all_ctrast.npy')
+    # lucky = np.random.randint(low=int(5881 * params.ratio), high=5881)
+    # all_spec = np.load('data/all_spec.npy')
+    # all_ctrast = np.load('data/all_ctrast.npy')
     # all_gap = np.load('data/all_gap.npy')
     # all_shape = np.load('data/all_shape.npy')
 
     with torch.no_grad():
-        real_spec = all_spec[int(lucky)]
+        # real_spec = all_spec[int(lucky)]
         # ctrast = all_ctrast[int(lucky)]
         desire = [1, 1, 0.4, 0.1, 0.4, 1, 1, 0.8, 0.8, 0.8, 0.8, 0.1, 0.3, 1]
         ctrast = np.array(desire)
@@ -264,6 +264,8 @@ def train_simulator(params):
     # Data configuration
     if not (os.path.exists('data/all_gap.npy') and os.path.exists('data/all_shape.npy') and os.path.exists('data/all_spec.npy')):
         data_pre_arbitrary(params.T_path)
+
+    if not (os.path.exists('data/all_gap_en.npy') and os.path.exists('data/all_shape_en.npy') and os.path.exists('data/all_spec_en.npy')):
         data_enhancement()
 
     all_gap = torch.from_numpy(np.load('data/all_gap_en.npy')).float()
@@ -272,6 +274,8 @@ def train_simulator(params):
     # all_gauss = torch.from_numpy(np.load('data/all_gauss.npy')).float()
 
     all_num = all_gap.shape[0]
+    permutation = np.random.permutation(all_num).tolist()
+    all_gap, all_spec, all_shape = all_gap[permutation], all_spec[permutation, :], all_shape[permutation, :, :, :]
 
     train_gap = all_gap[:int(all_num * params.ratio)]
     valid_gap = all_gap[int(all_num * params.ratio):]
@@ -286,7 +290,7 @@ def train_simulator(params):
     valid_shape = all_shape[int(all_num * params.ratio):, :, :, :]
 
     train_dataset = TensorDataset(train_spec, train_shape, train_gap)
-    train_loader = DataLoader(dataset=train_dataset, batch_size=params.batch_size, shuffle=True)
+    train_loader = DataLoader(dataset=train_dataset, batch_size=params.batch_size_s, shuffle=True)
 
     valid_dataset = TensorDataset(valid_spec, valid_shape, valid_gap)
     valid_loader = DataLoader(dataset=valid_dataset, batch_size=valid_gap.shape[0], shuffle=True)
@@ -389,7 +393,7 @@ def test_simulator(params):
     # Visualization configuration
     make_figure_dir()
 
-    net = SimulatorNet(spec_dim=58, d=params.net_depth)
+    net = SimulatorNet(spec_dim=params.spec_dim, d=params.net_depth)
     if params.restore_from:
         load_checkpoint(os.path.join(current_dir, params.restore_from), net, None)
 
