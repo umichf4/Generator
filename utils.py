@@ -2,7 +2,7 @@
 # @Author: Brandon Han
 # @Date:   2019-08-17 15:20:26
 # @Last Modified by:   Brandon Han
-# @Last Modified time: 2019-09-11 19:52:20
+# @Last Modified time: 2019-09-11 23:17:43
 import torch
 import os
 import json
@@ -516,6 +516,16 @@ def data_enhancement():
     np.save('data/all_spec_en.npy', all_spec_en)
     np.save('data/all_shape_en.npy', all_shape_en)
     print('Data Enhancement Done!')
+
+
+def mask(output_shapes, output_gaps):
+    batch_size = output_gaps.shape[0]
+    mask = torch.zeros_like(output_shapes).float()
+    for i in range(batch_size):
+        bound = int(output_shapes.shape[-1] // (int(output_gaps[i, 0] * 200 + 200) / 20) + 1)
+        mask[i, 0, bound:-bound, bound:-bound] = 1
+    output_shapes = output_shapes * mask
+    return output_shapes
 
 
 if __name__ == '__main__':

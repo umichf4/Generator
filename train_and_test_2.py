@@ -2,7 +2,7 @@
 # @Author: Brandon Han
 # @Date:   2019-08-17 15:20:26
 # @Last Modified by:   Brandon Han
-# @Last Modified time: 2019-09-11 21:14:09
+# @Last Modified time: 2019-09-11 23:26:46
 
 import torch
 import torch.nn as nn
@@ -107,7 +107,7 @@ def train_generator(params):
     for k in range(params.epochs):
         epoch = k + 1
         epoch_list.append(epoch)
-        params.alpha = params.alpha * pow(0.5, epoch // 200)
+        # params.alpha = params.alpha * pow(0.5, epoch // 200)
 
         # Train
         net.train()
@@ -121,6 +121,7 @@ def train_generator(params):
             net.zero_grad()
 
             output_shapes, output_gaps = net(noise, ctrasts)
+            output_shapes = mask(output_shapes, output_gaps)
             output_specs = simulator(output_shapes, output_gaps)
             spec_loss = criterion_1(output_specs, inputs)
             shape_loss = 1 - criterion_2(output_shapes, labels)
@@ -140,6 +141,7 @@ def train_generator(params):
                 noise = torch.rand(inputs.shape[0], params.noise_dim)
 
                 output_shapes, output_gaps = net(noise, ctrasts)
+                output_shapes = mask(output_shapes, output_gaps)
                 output_specs = simulator(output_shapes, output_gaps)
                 spec_loss = criterion_1(output_specs, inputs)
                 shape_loss = 1 - criterion_2(output_shapes, labels)
@@ -221,9 +223,9 @@ def test_generator(params):
         spec = torch.from_numpy(ctrast).float().view(1, -1)
         noise = torch.rand(1, params.noise_dim)
         spec, noise = spec.to(device), noise.to(device)
-        output_img, ouput_gap = net(noise, spec)
+        output_img, output_gap = net(noise, spec)
         out_img = output_img.view(64, 64).detach().cpu().numpy()
-        out_gap = int(np.rint(ouput_gap.view(-1).detach().cpu().numpy() * 200 + 200))
+        out_gap = int(np.rint(output_gap.view(-1).detach().cpu().numpy() * 200 + 200))
         print(out_gap)
         shape_pred = MetaShape(out_gap)
         shape_pred.img = np.uint8(out_img * 255)
