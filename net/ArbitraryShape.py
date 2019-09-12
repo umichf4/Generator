@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # @Author: Brandon Han
 # @Date:   2019-09-04 14:27:09
-# @Last Modified by:   BrandonHanx
-# @Last Modified time: 2019-09-11 13:50:50
+# @Last Modified by:   Brandon Han
+# @Last Modified time: 2019-09-11 20:58:44
 
 import os
 import sys
@@ -53,8 +53,8 @@ class GeneratorNet(nn.Module):
         super().__init__()
         self.noise_dim = noise_dim
         self.ctrast_dim = ctrast_dim
-        # self.gaussian_kernel = get_gaussian_kernel(kernel_size)
-        # self.pad = (kernel_size - 1) // 2
+        self.gaussian_kernel = get_gaussian_kernel(kernel_size)
+        self.pad = (kernel_size - 1) // 2
         self.deconv_block_ctrast = nn.Sequential(
             nn.ConvTranspose2d(self.ctrast_dim, d * 4, 4, 1, 0),
             nn.BatchNorm2d(d * 4),
@@ -113,7 +113,7 @@ class GeneratorNet(nn.Module):
         ctrast = self.deconv_block_ctrast(ctrast_in.view(-1, self.ctrast_dim, 1, 1))
         net = torch.cat((noise, ctrast), 1)
         img = self.deconv_block_cat(net)
-        # net = F.conv2d(net, self.gaussian_kernel, padding=self.pad)
+        # img = F.conv2d(img, self.gaussian_kernel, padding=self.pad)
         gap_in = self.fc_block_1(img.view(img.size(0), -1)) + self.short_cut(ctrast_in.view(ctrast_in.size(0), -1))
         gap = self.fc_block_2(gap_in)
         return (img + 1) / 2, (gap + 1) / 2

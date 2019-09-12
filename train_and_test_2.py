@@ -2,7 +2,7 @@
 # @Author: Brandon Han
 # @Date:   2019-08-17 15:20:26
 # @Last Modified by:   Brandon Han
-# @Last Modified time: 2019-09-11 15:33:00
+# @Last Modified time: 2019-09-11 21:14:09
 
 import torch
 import torch.nn as nn
@@ -83,11 +83,11 @@ def train_generator(params):
     net = GeneratorNet(noise_dim=params.noise_dim, ctrast_dim=params.ctrast_dim, d=params.net_depth)
     net.weight_init(mean=0, std=0.02)
 
-    optimizer = torch.optim.Adam(net.parameters(), lr=params.lr, betas=(0.5, 0.999))
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, params.step_szie, params.gamma)
+    optimizer = torch.optim.Adam(net.parameters(), lr=params.lr_g, betas=(0.5, 0.999))
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, params.step_size_g, params.gamma_g)
 
     simulator = SimulatorNet(spec_dim=params.spec_dim, d=params.net_depth)
-    load_checkpoint('models/arbitrary_Epoch1000_final_s.pth', simulator, None)
+    load_checkpoint('models/simulator_full_trained.pth', simulator, None)
     for param in simulator.parameters():
         param.requires_grad = False
 
@@ -107,6 +107,7 @@ def train_generator(params):
     for k in range(params.epochs):
         epoch = k + 1
         epoch_list.append(epoch)
+        params.alpha = params.alpha * pow(0.5, epoch // 200)
 
         # Train
         net.train()
@@ -123,7 +124,7 @@ def train_generator(params):
             output_specs = simulator(output_shapes, output_gaps)
             spec_loss = criterion_1(output_specs, inputs)
             shape_loss = 1 - criterion_2(output_shapes, labels)
-            train_loss = spec_loss + shape_loss * 0.1
+            train_loss = spec_loss + shape_loss * params.alpha
             train_loss.backward()
             optimizer.step()
 
@@ -142,7 +143,7 @@ def train_generator(params):
                 output_specs = simulator(output_shapes, output_gaps)
                 spec_loss = criterion_1(output_specs, inputs)
                 shape_loss = 1 - criterion_2(output_shapes, labels)
-                val_loss += spec_loss + shape_loss * 0.1
+                val_loss += spec_loss + shape_loss * params.alpha
 
         val_loss /= (i + 1)
         val_loss_list.append(val_loss)
@@ -213,7 +214,7 @@ def test_generator(params):
     with torch.no_grad():
         # real_spec = all_spec[int(lucky)]
         # ctrast = all_ctrast[int(lucky)]
-        desire = [1, 1, 0.4, 0.1, 0.4, 1, 1, 0.8, 0.8, 0.8, 0.8, 0.1, 0.3, 1]
+        desire = [1, 1, 0.4, 0.1, 0.4, 1, 1, 1, 1, 1, 0.4, 0.1, 0.4, 1]
         ctrast = np.array(desire)
         # real_spec = gauss_spec_valley(wavelength, 440, 30, 0.1)
         # spec = np.concatenate((real_spec, real_spec))
@@ -226,9 +227,9 @@ def test_generator(params):
         print(out_gap)
         shape_pred = MetaShape(out_gap)
         shape_pred.img = np.uint8(out_img * 255)
-        shape_pred.binary_polygon()
-        shape_pred.remove_small_twice()
-        shape_pred.pad_boundary()
+        # shape_pred.binary_polygon()
+        # shape_pred.remove_small_twice()
+        # shape_pred.pad_boundary()
         shape_pred.save_polygon("figures/test_output/hhhh.png")
 
         spec_pred_TE, spec_pred_TM = RCWA_arbitrary(eng, gap=out_gap, img_path="figures/test_output/hhhh.png")
@@ -299,8 +300,8 @@ def train_simulator(params):
     net = SimulatorNet(spec_dim=params.spec_dim, d=params.net_depth)
     net.weight_init(mean=0, std=0.02)
 
-    optimizer = torch.optim.Adam(net.parameters(), lr=params.lr, betas=(0.5, 0.999))
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, params.step_szie, params.gamma)
+    optimizer = torch.optim.Adam(net.parameters(), lr=params.lr_s, betas=(0.5, 0.999))
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, params.step_size_s, params.gamma_s)
 
     criterion = nn.MSELoss()
     train_loss_list, val_loss_list, epoch_list = [], [], []
@@ -400,7 +401,7 @@ def test_simulator(params):
     net.to(device)
     net.eval()
     wavelength = np.linspace(400, 680, 29)
-    lucky = np.random.randint(low=int(1881 * params.ratio), high=2881)
+    lucky = np.random.randint(low=0, high=6500)
     all_spec = np.load('data/all_spec.npy')
     all_gap = np.load('data/all_gap.npy')
     all_shape = np.load('data/all_shape.npy')
