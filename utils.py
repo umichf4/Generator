@@ -2,7 +2,7 @@
 # @Author: Brandon Han
 # @Date:   2019-08-17 15:20:26
 # @Last Modified by:   Brandon Han
-# @Last Modified time: 2019-09-11 23:17:43
+# @Last Modified time: 2019-09-14 14:48:37
 import torch
 import os
 import json
@@ -11,6 +11,7 @@ import cmath
 import numpy as np
 from scipy import interpolate
 import scipy.io as scio
+import imageio
 import cv2
 from tqdm import tqdm
 from scipy.optimize import curve_fit
@@ -20,6 +21,27 @@ warnings.filterwarnings('ignore')
 
 current_dir = os.path.abspath(os.path.dirname(__file__))
 Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
+
+
+class Binaryloss(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x):
+        x = torch.mean(x) / x.shape[0]
+
+        return x
+
+
+class BiBinaryloss(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x):
+        right = x[:, 0, :, :].masked_fill((x[:, 0, :, :] < 0.5), 1)
+        left = x[:, 0, :, :].masked_fill((x[:, 0, :, :] >= 0.5), 0)
+        res = torch.mean(1 - right + left)
+        return res
 
 
 class Params():
@@ -107,6 +129,30 @@ def plot_single_part(wavelength, spectrum, name, legend='spectrum', interpolate=
     plt.close()
 
 
+def plot_triple_parts(wavelength, clear, dim, real, name, interpolate=True):
+    save_dir = os.path.join(current_dir, 'figures/test_output', name)
+    plt.figure()
+    plt.plot(wavelength, real, 'ob')
+    plt.plot(wavelength, clear, 'or')
+    plt.plot(wavelength, dim, 'og')
+    plt.grid()
+    if interpolate:
+        new_real = interploate(real)
+        new_clear = interploate(clear)
+        new_dim = interploate(dim)
+        new_wavelength = interploate(wavelength)
+        plt.plot(new_wavelength, new_real, '-b', label='RCWA Ground Truth')
+        plt.plot(new_wavelength, new_clear, '-r', label='Simulator Clear')
+        plt.plot(new_wavelength, new_dim, '-g', label='Simulator Dim')
+    plt.title('Comparison of inputs are binary or not')
+    plt.legend()
+    plt.xlabel('Wavelength (nm)')
+    plt.ylabel('Transimttance')
+    plt.ylim((0, 1))
+    plt.savefig(save_dir)
+    plt.close()
+
+
 def plot_both_parts(wavelength, real, fake, name, legend='Real and Fake', interpolate=True):
 
     color_left = 'blue'
@@ -176,6 +222,31 @@ def plot_both_parts_2(wavelength, real, cv, name, legend='Spectrum and Contrast 
 
     fig.tight_layout()  # otherwise the right y-label is slightly clipped
     plt.savefig(save_dir)
+
+
+def make_gif(path):
+    images = []
+    filenames = sorted((fn for fn in os.listdir(path) if fn.endswith('.png')))
+    for filename in filenames:
+        images.append(imageio.imread(os.path.join(path, filename)))
+    imageio.mimsave('tendency.gif', images, duration=0.1)
+
+
+def rename_all_files(path):
+    filelist = os.listdir(path)
+    count = 0
+    for file in filelist:
+        print(file)
+    for file in filelist:
+        Olddir = os.path.join(path, file)
+        if os.path.isdir(Olddir):
+            rename_all_files(Olddir)
+            continue
+        filetype = os.path.splitext(file)[1]
+        filename = os.path.splitext(file)[0]
+        Newdir = os.path.join(path, str(int(filename)).zfill(4) + filetype)
+        os.rename(Olddir, Newdir)
+        count += 1
 
 
 def rect2polar(real, imag):
@@ -528,8 +599,75 @@ def mask(output_shapes, output_gaps):
     return output_shapes
 
 
+def center_comp(ori):
+    global mask
+    mask = torch.zeros_like(ori)
+    global search_or_not
+    search_or_not = torch.zeros_like(ori)
+    global img
+    img = ori
+
+    for i in range(img.shape[0]):
+        center_x, center_y = find_center(img[i, 0])
+        assert img[i, 0, center_x, center_y] > 0
+        mask[i, 0, center_x, center_y] = 1
+
+    for bs_no in range(img.shape[0]):
+        flag = search(bs_no, center_x, center_y)
+
+    return img * mask
+
+
+def search(bs_no, cor_x, cor_y):
+    if cor_x < 0 or cor_x >= img.shape[2] or cor_y < 0 or cor_y >= img.shape[3]:
+        return -1
+
+    if search_or_not[bs_no, 0, cor_x, cor_y] == 0:
+        search_or_not[bs_no, 0, cor_x, cor_y] = 1
+    else:
+        return -1
+
+    if img[bs_no, 0, cor_x, cor_y] == 1:
+        mask[bs_no, 0, cor_x, cor_y] = 1
+        flag_left = search(bs_no, cor_x - 1, cor_y)
+        flag_right = search(bs_no, cor_x + 1, cor_y)
+        flag_up = search(bs_no, cor_x, cor_y - 1)
+        flag_down = search(bs_no, cor_x, cor_y + 1)
+    else:
+        mask[bs_no, 0, cor_x, cor_y] = 0
+
+    return 0
+
+
+def find_center(img):
+    center_x = img.shape[0] // 2
+    center_y = img.shape[1] // 2
+    list_point = []
+    for i in range(img.shape[0]):
+        for j in range(img.shape[1]):
+            point = (abs(i - center_x) + abs(j - center_y), i, j)
+            list_point.append(point)
+    list_point.sort(key=takeFirst)
+    for i in list_point:
+        if img[i[1], i[2]] > 0:
+            center_x = i[1]
+            center_y = i[2]
+            break
+
+    return center_x, center_y
+
+
+def takeFirst(elem):
+    return elem[0]
+
+
+def binary(output_shapes_org):
+    mask_1 = output_shapes_org > 0.5
+    mask_0 = output_shapes_org <= 0.5
+    output_shapes_new = output_shapes_org.masked_fill(mask_1, 1)
+    output_shapes_org = output_shapes_new.masked_fill(mask_0, 0)
+    return output_shapes_org
+
+
 if __name__ == '__main__':
-    all_ctrast = np.load('data/all_ctrast.npy')
-    all_spec = np.load('data/all_spec.npy')
-    wavelength = np.linspace(400, 680, 29)
-    plot_both_parts_2(wavelength, all_spec[0, :29], all_ctrast[0, :7], 'contrast_vector.png')
+    rename_all_files('results')

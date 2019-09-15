@@ -16,6 +16,7 @@
     "step_size_g": 200,
     "step_size_s": 50,
     "alpha": 0.05,
+    "beta": 0.0,
     "gamma_g": 0.5,
     "gamma_s": 0.5,
     "save_epoch": 500

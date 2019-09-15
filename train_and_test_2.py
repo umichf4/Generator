@@ -2,7 +2,7 @@
 # @Author: Brandon Han
 # @Date:   2019-08-17 15:20:26
 # @Last Modified by:   Brandon Han
-# @Last Modified time: 2019-09-11 23:26:46
+# @Last Modified time: 2019-09-14 15:05:08
 
 import torch
 import torch.nn as nn
@@ -20,6 +20,7 @@ from utils import *
 from tqdm import tqdm
 import cv2
 import pytorch_ssim
+from image_process import MetaShape
 
 
 def train_generator(params):
@@ -93,6 +94,8 @@ def train_generator(params):
 
     criterion_1 = nn.MSELoss()
     criterion_2 = pytorch_ssim.SSIM(window_size=11)
+    criterion_3 = BiBinaryloss()
+
     train_loss_list, val_loss_list, epoch_list = [], [], []
     spec_loss, shape_loss = 0, 0
 
@@ -121,11 +124,13 @@ def train_generator(params):
             net.zero_grad()
 
             output_shapes, output_gaps = net(noise, ctrasts)
-            output_shapes = mask(output_shapes, output_gaps)
+            binary_loss = criterion_3(output_shapes)
+            shape_loss = 1 - criterion_2(output_shapes, labels)
+            # output_shapes = binary(output_shapes)
             output_specs = simulator(output_shapes, output_gaps)
             spec_loss = criterion_1(output_specs, inputs)
-            shape_loss = 1 - criterion_2(output_shapes, labels)
-            train_loss = spec_loss + shape_loss * params.alpha
+
+            train_loss = spec_loss + shape_loss * params.alpha + binary_loss * params.beta
             train_loss.backward()
             optimizer.step()
 
@@ -134,24 +139,39 @@ def train_generator(params):
         # Validation
         net.eval()
         val_loss = 0
-        with torch.no_grad():
-            for i, data in enumerate(valid_loader):
-                inputs, labels, ctrasts = data
-                inputs, labels, ctrasts = inputs.to(device), labels.to(device), ctrasts.to(device)
-                noise = torch.rand(inputs.shape[0], params.noise_dim)
+        # with torch.no_grad():
+        #     for i, data in enumerate(valid_loader):
+        #         inputs, labels, ctrasts = data
+        #         inputs, labels, ctrasts = inputs.to(device), labels.to(device), ctrasts.to(device)
+        #         noise = torch.rand(inputs.shape[0], params.noise_dim)
 
-                output_shapes, output_gaps = net(noise, ctrasts)
-                output_shapes = mask(output_shapes, output_gaps)
-                output_specs = simulator(output_shapes, output_gaps)
-                spec_loss = criterion_1(output_specs, inputs)
-                shape_loss = 1 - criterion_2(output_shapes, labels)
-                val_loss += spec_loss + shape_loss * params.alpha
+        #         output_shapes, output_gaps = net(noise, ctrasts)
+        #         binary_loss = criterion_3(output_shapes)
+        #         shape_loss = 1 - criterion_2(output_shapes, labels)
+        #         # output_shapes = binary(output_shapes)
+        #         output_specs = simulator(output_shapes, output_gaps)
+        #         spec_loss = criterion_1(output_specs, inputs)
+        #         val_loss += spec_loss + shape_loss * params.alpha + binary_loss * params.beta
 
-        val_loss /= (i + 1)
+        # val_loss /= (i + 1)
         val_loss_list.append(val_loss)
+        with torch.no_grad():
+            desire = [1, 1, 0.4, 0.1, 0.4, 1, 1, 1, 1, 0.4, 0.1, 0.4, 1, 1]
+            ctrast = np.array(desire)
+            spec = torch.from_numpy(ctrast).float().view(1, -1)
+            noise = torch.rand(1, params.noise_dim)
+            spec, noise = spec.to(device), noise.to(device)
+            output_shapes, output_gaps = net(noise, spec)
 
-        print('Epoch=%d train_loss: %.7f val_loss: %.7f spec_loss: %.7f shape_loss: %.7f lr: %.7f' %
-              (epoch, train_loss, val_loss, spec_loss, shape_loss, scheduler.get_lr()[0]))
+        # Save figures
+        out_img = output_shapes[0, :, :].view(64, 64).detach().cpu().numpy()
+        out_gap = int(np.rint(output_gaps[0, :].view(-1).detach().cpu().numpy() * 200 + 200))
+        shape_pred = MetaShape(out_gap)
+        shape_pred.img = np.uint8(out_img * 255)
+        shape_pred.save_polygon("results/" + str(epoch) + ".png")
+
+        print('Epoch=%d train_loss: %.7f val_loss: %.7f spec_loss: %.7f shape_loss: %.7f binary_loss: %.7f lr: %.7f' %
+              (epoch, train_loss, val_loss, spec_loss, shape_loss, binary_loss, scheduler.get_lr()[0]))
         # print('Epoch=%d train_loss: %.7f val_loss: %.7f lr: %.7f' %
         #       (epoch, train_loss, val_loss, scheduler.get_lr()[0]))
 
@@ -189,7 +209,6 @@ def train_generator(params):
 
 def test_generator(params):
     import matlab.engine
-    from image_process import MetaShape
     eng = matlab.engine.start_matlab()
     eng.addpath(eng.genpath('matlab'))
     eng.addpath(eng.genpath('solvers'))
@@ -208,38 +227,37 @@ def test_generator(params):
     net.eval()
     wavelength = np.linspace(400, 680, 29)
     # lucky = np.random.randint(low=int(5881 * params.ratio), high=5881)
-    # all_spec = np.load('data/all_spec.npy')
-    # all_ctrast = np.load('data/all_ctrast.npy')
-    # all_gap = np.load('data/all_gap.npy')
-    # all_shape = np.load('data/all_shape.npy')
+    all_spec = np.load('data/all_spec.npy')
+    all_ctrast = np.load('data/all_ctrast.npy')
+    all_gap = np.load('data/all_gap.npy')
+    all_shape = np.load('data/all_shape.npy')
 
     with torch.no_grad():
-        # real_spec = all_spec[int(lucky)]
-        # ctrast = all_ctrast[int(lucky)]
-        desire = [1, 1, 0.4, 0.1, 0.4, 1, 1, 1, 1, 1, 0.4, 0.1, 0.4, 1]
-        ctrast = np.array(desire)
-        # real_spec = gauss_spec_valley(wavelength, 440, 30, 0.1)
-        # spec = np.concatenate((real_spec, real_spec))
-        spec = torch.from_numpy(ctrast).float().view(1, -1)
-        noise = torch.rand(1, params.noise_dim)
+        # real_spec = all_spec[:10]
+        ctrast = all_ctrast[:10]
+        # desire = [1, 1, 0.4, 0.1, 0.4, 1, 1, 1, 1, 0.4, 0.1, 0.4, 1, 1]
+        # ctrast = np.array(desire)
+        spec = torch.from_numpy(ctrast).float().view(10, -1)
+        noise = torch.rand(10, params.noise_dim)
         spec, noise = spec.to(device), noise.to(device)
         output_img, output_gap = net(noise, spec)
-        out_img = output_img.view(64, 64).detach().cpu().numpy()
-        out_gap = int(np.rint(output_gap.view(-1).detach().cpu().numpy() * 200 + 200))
-        print(out_gap)
-        shape_pred = MetaShape(out_gap)
-        shape_pred.img = np.uint8(out_img * 255)
-        # shape_pred.binary_polygon()
-        # shape_pred.remove_small_twice()
-        # shape_pred.pad_boundary()
-        shape_pred.save_polygon("figures/test_output/hhhh.png")
+        for i in range(10):
+            out_img = output_img[i, :, :].view(64, 64).detach().cpu().numpy()
+            out_gap = int(np.rint(output_gap[i, :].view(-1).detach().cpu().numpy() * 200 + 200))
+            # print(out_gap)
+            shape_pred = MetaShape(out_gap)
+            shape_pred.img = np.uint8(out_img * 255)
+            # shape_pred.binary_polygon()
+            # shape_pred.pad_boundary()
+            # shape_pred.remove_small_twice()
+            shape_pred.save_polygon("figures/test_output/dim/" + str(i + 10) + ".png")
 
-        spec_pred_TE, spec_pred_TM = RCWA_arbitrary(eng, gap=out_gap, img_path="figures/test_output/hhhh.png")
-        fake_TM = np.array(spec_pred_TM)
-        fake_TE = np.array(spec_pred_TE)
-        # plot_both_parts(wavelength, real_spec[0:29], fake_spec.squeeze(), "hhhh_result.png")
-        plot_both_parts_2(wavelength, fake_TM.squeeze(), ctrast[7:], "hhhh_result_TM.png")
-        plot_both_parts_2(wavelength, fake_TE.squeeze(), ctrast[:7], "hhhh_result_TE.png")
+        # spec_pred_TE, spec_pred_TM = RCWA_arbitrary(eng, gap=out_gap, img_path="figures/test_output/hhhh.png")
+        # fake_TM = np.array(spec_pred_TM)
+        # fake_TE = np.array(spec_pred_TE)
+        # # plot_both_parts(wavelength, real_spec[0:29], fake_spec.squeeze(), "hhhh_result.png")
+        # plot_both_parts_2(wavelength, fake_TM.squeeze(), ctrast[7:], "hhhh_result_TM.png")
+        # plot_both_parts_2(wavelength, fake_TE.squeeze(), ctrast[:7], "hhhh_result_TE.png")
 
     print('Finished Testing \n')
 
@@ -403,25 +421,46 @@ def test_simulator(params):
     net.to(device)
     net.eval()
     wavelength = np.linspace(400, 680, 29)
-    lucky = np.random.randint(low=0, high=6500)
+    # lucky = np.random.randint(low=0, high=6500)
     all_spec = np.load('data/all_spec.npy')
     all_gap = np.load('data/all_gap.npy')
-    all_shape = np.load('data/all_shape.npy')
+    # all_shape = np.load('data/all_shape.npy')
 
+    # with torch.no_grad():
+    #     real_spec = all_spec[int(lucky)]
+    #     gap = all_gap[int(lucky)]
+    #     img = all_shape[int(lucky)]
+    #     # cv2.imwrite("hhh.png", img.reshape(64, 64) * 255)
+    #     spec = torch.from_numpy(real_spec).float().view(1, -1)
+    #     img = torch.from_numpy(img).float().view(1, 1, 64, 64)
+    #     gap = torch.from_numpy(np.array(gap)).float().view(1, 1)
+
+    #     output = net(img, gap)
+    #     fake_spec = output.view(-1).detach().cpu().numpy()
+    #     plot_both_parts(wavelength, real_spec[:29], fake_spec[:29], "hhhh_result_TE.png")
+    #     plot_both_parts(wavelength, real_spec[29:], fake_spec[29:], "hhhh_result_TM.png")
+    #     loss = F.mse_loss(output, spec)
+    #     print(lucky, loss)
+    # with torch.no_grad():
+    #     real_TE, real_TM = RCWA_arbitrary(eng, gap=342, img_path="figures/test_output/2_error.png")
+    #     test_img = cv2.imread("figures/test_output/2_error.png", cv2.IMREAD_GRAYSCALE)
+    #     img = torch.from_numpy(test_img / 255).float().view(1, 1, 64, 64)
+    #     gap = torch.from_numpy(np.array((342 - 200) / 200)).float().view(1, 1)
+    #     output = net(img, gap)
+    #     fake_spec = output.view(-1).detach().cpu().numpy()
+    #     plot_both_parts(wavelength, np.array(real_TE).squeeze(), fake_spec[:29], "hhhh_result_TE.png")
+    #     plot_both_parts(wavelength, np.array(real_TM).squeeze(), fake_spec[29:], "hhhh_result_TM.png")
     with torch.no_grad():
-        real_spec = all_spec[int(lucky)]
-        gap = all_gap[int(lucky)]
-        img = all_shape[int(lucky)]
-        # cv2.imwrite("hhh.png", img.reshape(64, 64) * 255)
-        spec = torch.from_numpy(real_spec).float().view(1, -1)
-        img = torch.from_numpy(img).float().view(1, 1, 64, 64)
-        gap = torch.from_numpy(np.array(gap)).float().view(1, 1)
-
-        output = net(img, gap)
-        fake_spec = output.view(-1).detach().cpu().numpy()
-        plot_both_parts(wavelength, real_spec[:29], fake_spec[:29], "hhhh_result_TE.png")
-        plot_both_parts(wavelength, real_spec[29:], fake_spec[29:], "hhhh_result_TM.png")
-        loss = F.mse_loss(output, spec)
-        print(lucky, loss)
+        real_TE, _ = RCWA_arbitrary(eng, gap=220, img_path="figures/test_output/dim/1.png")
+        dim_img = cv2.imread("figures/test_output/dim/11.png", cv2.IMREAD_GRAYSCALE)
+        dim_img = torch.from_numpy(dim_img / 255).float().view(1, 1, 64, 64)
+        gap = torch.from_numpy(np.array((220 - 200) / 200)).float().view(1, 1)
+        output = net(dim_img, gap)
+        dim_spec = output.view(-1).detach().cpu().numpy()
+        clear_img = cv2.imread("figures/test_output/dim/1.png", cv2.IMREAD_GRAYSCALE)
+        clear_img = torch.from_numpy(clear_img / 255).float().view(1, 1, 64, 64)
+        output = net(clear_img, gap)
+        clear_spec = output.view(-1).detach().cpu().numpy()
+        plot_triple_parts(wavelength, clear_spec[:29], dim_spec[:29], np.array(real_TE).squeeze(), 'dim_vs_clear.png')
 
     print('Finished Testing \n')
