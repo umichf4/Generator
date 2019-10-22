@@ -8,6 +8,7 @@ current_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(current_dir)
 import json
 from train_and_test_2 import train_generator, test_generator, train_simulator, test_simulator
+from test_paper_figure import test_paper
 from utils import Params
 import warnings
 warnings.filterwarnings('ignore')
@@ -15,7 +16,7 @@ warnings.filterwarnings('ignore')
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--save_model_dir', default='models', type=str)
-parser.add_argument('--restore_from', default=None, type=str)
+parser.add_argument('--restore_from', default='models/generator_full_trained.pth', type=str)
 parser.add_argument('--json_path', default='params.json', type=str)
 parser.add_argument('--T_path', default='data\\shape_spec_6500.mat', type=str)
 parser.add_argument('--test', action='store_true', default=False)
@@ -33,11 +34,13 @@ params.T_path = args.T_path
 # params.freeze = args.freeze
 params.cuda = torch.cuda.is_available()
 
-if args.test and args.simulator:
-    test_simulator(params)
-elif not args.test and args.simulator:
-    train_simulator(params)
-elif args.test and not args.simulator:
-    test_generator(params)
-else:
-    train_generator(params)
+# if args.test and args.simulator:
+#     test_simulator(params)
+# elif not args.test and args.simulator:
+#     train_simulator(params)
+# elif args.test and not args.simulator:
+#     test_generator(params)
+# else:
+#     train_generator(params)
+
+test_paper(params)
